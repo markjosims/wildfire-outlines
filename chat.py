@@ -59,7 +59,6 @@ class QuestionServer:
             for chapter in self.data
             if int(chapter["chapter"]) == self.chapter_index
         ]
-        breakpoint()
         assert len(chapter_data) == 1
         return chapter_data[0]
 
