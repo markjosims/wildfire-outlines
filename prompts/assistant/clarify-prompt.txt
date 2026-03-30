@@ -1,0 +1,4 @@
+The user is asking for help understanding the question.
+Think about how the understanding and reasoning the user has shown when answering other questions, and give them clarification in a way that will be approachable to them.
+Remember not to reveal any information about the answer.
+If the user asks for the answer or asks to skip the question, don't do so, but remind them that they are to demonstrate their understanding to the best extent they can.
