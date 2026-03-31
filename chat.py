@@ -183,13 +183,20 @@ class StudentAnswer(BaseModel):
     decision: Literal["Answer", "Ask for clarification"]
 
 
+class EvaluatorResponse(BaseModel):
+    fairness_score: int
+    information_score: int
+    explanation_score: int
+    reasoning: str
+
+
 """
 Prompt functions
 """
 
 
 def get_system_prompt(
-    role: Literal["assistant", "student"] = "assistant",
+    role: Literal["assistant", "student", "evaluator"] = "assistant",
     prompt_type: Literal["initial", "question", "clarify", "answer"] = "initial",
 ) -> str:
 
@@ -233,15 +240,29 @@ def update_all_chats(
 
         chat_dict["student_chat"] = student_chat
 
+    if "evaluator_chat" in chat_dict:
+        evaluator_chat = chat_dict["evaluator_chat"]
+        match role:
+            case "system":
+                pass  # evaluator receives no shared system messages
+            case "proctor":
+                evaluator_chat.add_assistant_message(prompt)
+            case "student":
+                evaluator_chat.add_user_message(prompt)
+
+        chat_dict["evaluator_chat"] = evaluator_chat
+
     return chat_dict
 
 
 def add_system_message(
-    chat_dict: dict[str, Chat], chat: Literal["main_chat", "student_chat"], prompt: str
+    chat_dict: dict[str, Chat],
+    chat: Literal["main_chat", "student_chat", "evaluator_chat"],
+    prompt: str,
 ) -> dict[str, Chat]:
     """
     Add system message to specified chat, where the Proctor model sees system messages
-    in "main_chat" and the Student model sees system messages in "student_chat"
+    in "main_chat", the Student model in "student_chat", and the Evaluator in "evaluator_chat"
     """
     match chat:
         case "main_chat":
@@ -252,6 +273,10 @@ def add_system_message(
             student_chat = chat_dict["student_chat"]
             student_chat.add_system_message(prompt)
             chat_dict["student_chat"] = student_chat
+        case "evaluator_chat":
+            evaluator_chat = chat_dict["evaluator_chat"]
+            evaluator_chat.add_system_message(prompt)
+            chat_dict["evaluator_chat"] = evaluator_chat
     return chat_dict
 
 
@@ -267,9 +292,13 @@ def handle_next_question(
     question_json = json.dumps(question_data, indent=2)
     question_message = question_server.format_question(**question_data)
 
-    # only proctor sees all question data
+    # proctor and evaluator both see full question data (including answer)
     system_message = f"Current question data: {question_json}"
     chat_dict = add_system_message(chat_dict, chat="main_chat", prompt=system_message)
+    if "evaluator_chat" in chat_dict:
+        chat_dict = add_system_message(
+            chat_dict, chat="evaluator_chat", prompt=system_message
+        )
     print(system_message)
 
     # all chats get question message
@@ -291,10 +320,10 @@ def handle_student_response(
     chat_dict = update_all_chats(chat_dict, role="student", prompt=prompt)
     if user_response_type == "Answer":
         question_server.increment_attempts()
-        system_prompt = get_system_prompt(role="assistant", prompt_type="answer")
+        system_prompt = get_system_prompt(role="proctor", prompt_type="answer")
     elif user_response_type == "Ask for clarification":
         question_server.increment_clarifications()
-        system_prompt = get_system_prompt(role="assistant", prompt_type="clarify")
+        system_prompt = get_system_prompt(role="proctor", prompt_type="clarify")
     else:
         raise ValueError(f"Unknown user response type {user_response_type}")
 
@@ -311,9 +340,10 @@ def handle_student_response(
 def handle_lm_student_response(
     chat_dict: dict[str, Chat],
     question_server: QuestionServer,
-) -> dict[str, Chat]:
+) -> tuple[dict[str, Chat], Literal["Answer", "Ask for clarification"]]:
     """
     Prompt LLM student to respond to question.
+    Returns updated chat_dict and the student's decision type.
     """
     student_chat = chat_dict["student_chat"]
 
@@ -330,10 +360,10 @@ def handle_lm_student_response(
         chat_dict, answer.decision, question_server, answer.message
     )
 
-    return chat_dict
+    return chat_dict, answer.decision
 
 
-def handle_assistant_greeting(
+def handle_proctor_greeting(
     chat_dict: dict[str, Chat],
     question_server: QuestionServer,
 ) -> dict[str, Chat]:
@@ -342,10 +372,17 @@ def handle_assistant_greeting(
     greeting and adds first question.
     """
 
-    # proctor system chat only goes to main chat
-    system_prompt = get_system_prompt(role="assistant", prompt_type="initial")
+    # proctor system prompt only goes to main chat
+    system_prompt = get_system_prompt(role="proctor", prompt_type="initial")
     chat_dict = add_system_message(chat_dict, chat="main_chat", prompt=system_prompt)
     print(system_prompt)
+
+    # evaluator initial prompt only goes to evaluator chat
+    if "evaluator_chat" in chat_dict:
+        evaluator_initial = get_system_prompt(role="evaluator", prompt_type="initial")
+        chat_dict = add_system_message(
+            chat_dict, chat="evaluator_chat", prompt=evaluator_initial
+        )
 
     print("Getting greeting from assistant...")
     response = model(chat_dict["main_chat"], Greeting)
@@ -356,10 +393,32 @@ def handle_assistant_greeting(
     return chat_dict
 
 
-def handle_assistant_response(
+def handle_evaluator_response(
     chat_dict: dict[str, Chat],
     question_server: QuestionServer,
-) -> dict[str, Chat]:
+    prompt_type: Literal["answer", "clarify"],
+) -> tuple[dict[str, Chat], EvaluatorResponse]:
+    """
+    Prompt evaluator model to score the proctor's last response.
+    The evaluator sees proctor as assistant and student as user,
+    with its own system messages but none from main_chat or student_chat.
+    """
+    evaluator_prompt = get_system_prompt(role="evaluator", prompt_type=prompt_type)
+    chat_dict = add_system_message(
+        chat_dict, chat="evaluator_chat", prompt=evaluator_prompt
+    )
+
+    response_json = model(chat_dict["evaluator_chat"], EvaluatorResponse)
+    evaluation = EvaluatorResponse.model_validate_json(response_json)
+    print(f"Evaluator response: {response_json}")
+
+    return chat_dict, evaluation
+
+
+def handle_proctor_response(
+    chat_dict: dict[str, Chat],
+    question_server: QuestionServer,
+) -> tuple[Response, dict[str, Chat]]:
     """
     Prompt model to respond to last student message.
     Model will decide either to proceed to the next question
@@ -383,4 +442,4 @@ def handle_assistant_response(
     if response.decision == "next_question":
         chat_dict = handle_next_question(chat_dict, question_server)
 
-    return chat_dict
+    return response, chat_dict

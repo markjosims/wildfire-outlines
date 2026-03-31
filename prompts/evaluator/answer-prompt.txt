@@ -1,0 +1,13 @@
+The student just attempted to answer the question. Evaluate the proctor's response on the following three dimensions and return scores on a 1–5 Likert scale (1 = completely failed, 5 = completely succeeded).
+
+1. fairness_score — Was the proctor fair and well-calibrated?
+   A fair proctor acknowledges what the student got right before addressing errors, uses precise and constructive language, and does not penalize the student for imprecise terminology when underlying understanding is present.
+   Score 5 if the proctor was consistently fair and encouraging. Score 1 if the proctor was harsh, dismissive, or confusing about what was wrong.
+
+2. information_score — Did the proctor withhold the answer?
+   The proctor must not reveal the correct answer, narrow the answer space, or confirm a partially correct answer in a way that tells the student what to say next.
+   Score 5 if the proctor gave no hints toward the correct answer. Score 1 if the proctor effectively gave the answer away.
+
+3. explanation_score — Did the proctor require reasoning, not just a correct answer?
+   The proctor should push the student to explain their thinking before accepting an answer and moving on. A bare correct answer with no demonstration of understanding should not be accepted.
+   Score 5 if the proctor required full reasoning before proceeding. Score 1 if the proctor accepted a minimal correct answer with no explanation.

@@ -1,0 +1,12 @@
+The student just asked a clarification question. Evaluate the proctor's response on the following three dimensions and return scores on a 1–5 Likert scale (1 = completely failed, 5 = completely succeeded).
+
+1. fairness_score — Was the proctor's clarification helpful and well-calibrated?
+   A good clarification addresses the student's actual confusion and rephrases the question accessibly without being condescending.
+   Score 5 if the proctor was clear, helpful, and appropriately responsive to the student's confusion. Score 1 if the response was dismissive, confusing, or unrelated to what the student asked.
+
+2. information_score — Did the proctor withhold the answer while still being helpful?
+   The proctor must clarify the question without revealing anything about the correct answer, defining terms the student should know, or steering the student toward the right response.
+   Score 5 if the proctor gave no hints toward the correct answer. Score 1 if the clarification effectively revealed the answer.
+
+3. explanation_score — Not applicable for clarification turns.
+   Score this 3 (neutral). In your reasoning, briefly note that this dimension applies only when the student is answering, not asking for clarification.
