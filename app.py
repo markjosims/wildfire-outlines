@@ -50,17 +50,28 @@ def get_chat():
     return chat_dict
 
 
+def reset_response_selection():
+    st.session_state.response_selection = None
+
+
 def get_user_response_type() -> Optional[Literal["Answer", "Ask for clarification"]]:
     chat_dict: Chat = st.session_state.chat_dict
     question_server: QuestionServer = st.session_state.question_server
     question_status = question_server.get_question_status()
     if question_status == "attempts_and_clarifications":
         user_response_type = st.pills(
-            label="Response type", options=["Answer", "Ask for clarification"]
+            label="Response type",
+            options=["Answer", "Ask for clarification"],
+            default=None,
+            # disabled=st.session_state.get("reset_response_selection", False),
+            key="response_selection",
         )
     elif question_status == "no_clarifications":
         user_response_type = st.pills(
-            label="Response type", options=["Answer"], default="Answer"
+            label="Response type",
+            options=["Answer"],
+            # disabled=st.session_state.get("reset_response_selection", False),
+            key="response_selection",
         )
     elif question_status == "no_attempts":
         handle_next_question(chat_dict, question_server)
@@ -68,6 +79,12 @@ def get_user_response_type() -> Optional[Literal["Answer", "Ask for clarificatio
         st.rerun()
     else:
         raise ValueError("Unrecognized question status", question_status)
+
+    # cache user response type so resetting button doesn't change it
+    if user_response_type:
+        st.session_state.last_response_type = user_response_type
+    elif st.session_state.get("last_response_type", None) is not None:
+        return st.session_state.last_response_type
     return user_response_type
 
 
@@ -146,7 +163,11 @@ else:
     # based on previous question
     user_response_type = get_user_response_type()
 
-    if prompt := st.chat_input("Type response here", disabled=not user_response_type):
+    if prompt := st.chat_input(
+        "Type response here",
+        disabled=not user_response_type,
+        on_submit=reset_response_selection,
+    ):
         assert user_response_type is not None
         # prepend response type to prompt for transparency when printed to chat
         prompt = f"({user_response_type}) {prompt}"
@@ -157,6 +178,9 @@ else:
 
         with st.chat_message("user"):
             st.markdown(prompt)
+
+        # reset last response type as we no longer need it
+        st.session_state.last_response_type = None
 
     # give user prompt to assistant and let assistant decide to follow up
     # or ask next question
@@ -184,5 +208,6 @@ else:
         st.session_state.chat_dict = chat_dict
 
         st.session_state.chat_dict = chat_dict
+
         # rerun app so messages will be printed, as handled above
         st.rerun()
