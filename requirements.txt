@@ -3,3 +3,5 @@ outlines
 openai
 dotenv
 streamlit
+boto3
+botocore[crt]

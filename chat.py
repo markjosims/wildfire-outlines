@@ -13,12 +13,19 @@ from outlines.inputs import Chat
 import os
 from typing import Literal
 import logging
+from secret import get_secret
 
-from streamlit.delta_generator import Value
-
-load_dotenv()
+# configure logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+# get OpenAI environment vars
+# for API key, first try loading from .env
+# if not present, try AWS secret
+load_dotenv()
+if "OPENAI_API_KEY" not in os.environ:
+    os.environ["OPENAI_API_KEY"] = get_secret()
+
 
 openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.4-mini")
 client = OpenAI()
