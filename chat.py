@@ -58,11 +58,11 @@ class QuestionServer:
         # chapter index corresponds to chapter number in course textbook
         # and so it is 1-indexed
         # question index corresponds to index in JSON array
-        # and so it is 0-indexed, but starts at -1 since
-        # 'handle_next_question' always increments question_index
-        # at the beginning
+        # and so it is 0-indexed, but starts at None so
+        # 'handle_next_question' can set it to 0
+        # on first call
         self.chapter_index = 1
-        self.question_index = -1
+        self.question_index = None
         self.max_chapter = max(
             int(chapter_data["chapter"]) for chapter_data in self.data
         )
@@ -75,6 +75,28 @@ class QuestionServer:
 
         self.max_clarifications = 5
         self.max_answer_attempts = 5
+
+        self.question_evals: dict[int, list[QuestionGrade]] = {}
+
+    def add_question_grade(self, eval: "QuestionGrade", chapter: int) -> None:
+        if chapter not in self.question_evals:
+            self.question_evals[chapter] = []
+        self.question_evals[chapter].append(eval)
+
+    def get_chapter_data(
+        self, chapter_index: int
+    ) -> dict[str, str | list[dict[str, str]]]:
+        chapter_data = [
+            chapter for chapter in self.data if int(chapter["chapter"]) == chapter_index
+        ]
+        assert len(chapter_data) == 1
+        return chapter_data[0]
+
+    def attempted_chapters(self) -> list[int]:
+        return sorted(self.question_evals.keys())
+
+    def last_chapter_attempted(self) -> int:
+        return max(self.attempted_chapters())
 
     def load_data(self) -> list[dict[str, str | list[dict[str, str]]]]:
         with open(self.json_path) as f:
@@ -153,7 +175,10 @@ class QuestionServer:
         self.num_answer_attempts = 0
         self.num_clarifications = 0
 
-        question_index = self.question_index + 1
+        if self.question_index is None:
+            question_index = 0
+        else:
+            question_index = self.question_index + 1
 
         chapter_data = self.get_current_chapter_data()
         chapter_num_questions = len(chapter_data["questions"])
@@ -166,7 +191,7 @@ class QuestionServer:
                 return "end_test"
             return "next_question"
 
-        self.question_index += 1
+        self.question_index = question_index
         return "next_question"
 
 
@@ -197,14 +222,61 @@ class EvaluatorResponse(BaseModel):
     reasoning: str
 
 
+class QuestionGrade(BaseModel):
+    answer_correct: bool
+    confidence: Literal[1, 2, 3, 4, 5]
+    thoroughness: Literal[1, 2, 3, 4, 5]
+    explanation: str
+
+
+class ChapterSummary(BaseModel):
+    chapter: int
+    overall_score: Literal[1, 2, 3, 4, 5]
+    summary: str
+    strengths: list[str]
+    weaknesses: list[str]
+
+
+class TestSummary(BaseModel):
+    overall_score: Literal[1, 2, 3, 4, 5]
+    summary: str
+    strengths: list[str]
+    areas_for_improvement: list[str]
+
+
 """
 Prompt functions
 """
 
+# RoleType refers to the various roles the LLM may assume in a conversation
+# - Proctor: Role for giving test to student
+# - Student: (In AI student mode) Role for answering Proctor model questions
+# - Evaluator: Role for assessing Proctor's responses
+# - Grader: Role for assinging a grade to each question's response
+# Each of these four roles gets a unique chat history so that
+# we can control what context they have access to
+RoleType = Literal["proctor", "student", "evaluator", "grader"]
+
+# ParticipantType refers to the main interlocutors of the chat
+# This is used when updating multiple chats at once to decide
+# what role the message should be given in each chat
+ParticipantType = Literal["proctor", "student", "system"]
+
+# Enumeration of all prompt types stored in prompts/ folder
+PromptType = Literal[
+    "initial",
+    "question",
+    "clarify",
+    "answer",
+    "grade-question",
+    "chapter-summary",
+    "test-summary",
+]
+
 
 def get_system_prompt(
-    role: Literal["assistant", "student", "evaluator"] = "assistant",
-    prompt_type: Literal["initial", "question", "clarify", "answer"] = "initial",
+    role: RoleType = "proctor",
+    prompt_type: PromptType = "initial",
 ) -> str:
 
     system_prompt_path = f"./prompts/{role}/{prompt_type}-prompt.txt"
@@ -215,16 +287,33 @@ def get_system_prompt(
 
 def update_all_chats(
     chat_dict: dict[str, Chat],
-    role: Literal["proctor", "student", "system"],
+    role: Literal["proctor", "student", "question_server"],
     prompt: str,
 ) -> dict[str, Chat]:
     """
-    Add message to 'main_chat' (where assistant=proctor and user=student)
-    and 'student_chat' (where assistant=student and user=proctor).
+    Route message to all chats in the conversation. This message
+    is used for Student/Proctor interactions and question data,
+    since these messages are shared across chat histories.
+
+    The only exception is question_server messages, which are
+    not added to the Student chat history. This is because the
+    'question_server' role is reserved for adding ALL question
+    data, including answers and explanations. The question itself
+    is served directly from the QuestionServer object but is put
+    to the chats under the Proctor role.
+
+    The logic for routing messages to chat histories is as follows:
+    - system and question server messages always go to "system" role
+    - main_chat: assistant is Proctor, user is Student
+    - student_chat: assistant is Student, user is Proctor,
+        question_server messages are excluded
+    - evaluator: assistant is Proctor, user is Student
+    - grader: assistant is Proctor, user is Student
+
     """
     main_chat = chat_dict["main_chat"]
     match role:
-        case "system":
+        case "question_server":
             main_chat.add_system_message(prompt)
         case "proctor":
             main_chat.add_assistant_message(prompt)
@@ -238,8 +327,8 @@ def update_all_chats(
     if "student_chat" in chat_dict:
         student_chat = chat_dict["student_chat"]
         match role:
-            case "system":
-                student_chat.add_system_message(prompt)
+            case "question_server":
+                pass # student does not get question data
             case "proctor":
                 student_chat.add_user_message(prompt)
             case "student":
@@ -250,14 +339,26 @@ def update_all_chats(
     if "evaluator_chat" in chat_dict:
         evaluator_chat = chat_dict["evaluator_chat"]
         match role:
-            case "system":
-                pass  # evaluator receives no shared system messages
+            case "question_server":
+                evaluator_chat.add_system_message(prompt)
             case "proctor":
                 evaluator_chat.add_assistant_message(prompt)
             case "student":
                 evaluator_chat.add_user_message(prompt)
 
         chat_dict["evaluator_chat"] = evaluator_chat
+
+    if "grader_chat" in chat_dict:
+        grader_chat = chat_dict["grader_chat"]
+        match role:
+            case "question_server":
+                pass  # grader receives no shared system messages
+            case "proctor":
+                grader_chat.add_assistant_message(prompt)
+            case "student":
+                grader_chat.add_user_message(prompt)
+
+        chat_dict["grader_chat"] = grader_chat
 
     return chat_dict
 
@@ -422,6 +523,25 @@ def handle_evaluator_response(
     return chat_dict, evaluation
 
 
+def handle_question_grading(
+    chat_dict: dict[str, Chat],
+    question_server: QuestionServer,
+) -> tuple[dict[str, Chat], QuestionGrade]:
+    """
+    Prompt the grader to evaluate the student's performance on the current question.
+    Stores the evaluation in question_server and returns updated chat_dict and the eval.
+    """
+    grade_prompt = get_system_prompt(role="grader", prompt_type="grade-question")
+    chat_dict = add_system_message(chat_dict, chat="grader_chat", prompt=grade_prompt)
+
+    response_json = model(chat_dict["grader_chat"], QuestionGrade)
+    evaluation = QuestionGrade.model_validate_json(response_json)
+    question_server.add_question_grade(evaluation, question_server.chapter_index)
+    print(f"Question eval: {response_json}")
+
+    return chat_dict, evaluation
+
+
 def handle_proctor_response(
     chat_dict: dict[str, Chat],
     question_server: QuestionServer,
@@ -447,6 +567,61 @@ def handle_proctor_response(
 
     # model decided to move on to next question
     if response.decision == "next_question":
+        chat_dict, _ = handle_question_grading(chat_dict, question_server)
         chat_dict = handle_next_question(chat_dict, question_server)
 
     return response, chat_dict
+
+
+def handle_chapter_summary(
+    question_server: QuestionServer,
+    chapter_index: int,
+) -> ChapterSummary:
+    """
+    Prompt the proctor to summarize a student's performance on a single chapter.
+    Uses a fresh chat with the chapter's questions and evals as context.
+    """
+    chapter_data = question_server.get_chapter_data(chapter_index)
+    evals = question_server.question_evals.get(chapter_index, [])
+
+    context = json.dumps(
+        {
+            "chapter": chapter_index,
+            "title": chapter_data["title"],
+            "questions": chapter_data["questions"],
+            "question_evaluations": [e.model_dump() for e in evals],
+        },
+        indent=2,
+    )
+
+    summary_prompt = get_system_prompt(role="grader", prompt_type="chapter-summary")
+    chat = Chat()
+    chat.add_system_message(summary_prompt)
+    chat.add_user_message(f"Chapter data and evaluations:\n{context}")
+
+    response_json = model(chat, ChapterSummary)
+    summary = ChapterSummary.model_validate_json(response_json)
+    print(f"Chapter {chapter_index} summary: {response_json}")
+    return summary
+
+
+def handle_test_summary(
+    chapter_summaries: list[ChapterSummary],
+) -> TestSummary:
+    """
+    Prompt the proctor to summarize overall student performance across all chapters.
+    """
+    context = json.dumps(
+        [s.model_dump() for s in chapter_summaries],
+        indent=2,
+    )
+
+    summary_prompt = get_system_prompt(role="grader", prompt_type="test-summary")
+    chat = Chat()
+    chat.add_system_message(summary_prompt)
+    chat.add_user_message(f"Chapter summaries:\n{context}")
+
+    response_json = model(chat, TestSummary)
+    summary = TestSummary.model_validate_json(response_json)
+    print(f"Test summary: {response_json}")
+    return summary

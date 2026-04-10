@@ -10,7 +10,7 @@
         "question_format": "Numeric‐calculation item",
         "question_text": "A rookie’s practice run of 1.5 miles took 12 minutes 30 seconds. Fireline fitness guidelines say that to work safely for long shifts you must finish that distance in **11 minutes 40 seconds** or faster.  \n *How many seconds does the rookie need to cut to meet the standard? Show your working and final answer with units.*",
         "answer": "50 s",
-        "explanation_text": "Recommended time \\= 11 min 40 s = 700 s. Current time \\= 12 min 30 s = 750 s. Difference = 750 s – 700 s \\= 50 s. Meeting this aerobic benchmark proves the firefighter’s body can move enough oxygen to muscles during prolonged, high‑heat assignments, reducing fatigue‑linked errors (p. 4)."
+        "explanation_text": "Recommended time \\= 11 min 40 s = 700 s. Current time \\= 12 min 30 s = 750 s. Difference = 750 s – 700 s \\= 50 s."
       },
       {
         "item_type": "Concept",

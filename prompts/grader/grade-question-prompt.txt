@@ -1,0 +1,10 @@
+The student has just completed their attempt at the current question and is being advanced to the next one.
+Based on the full conversation for this question, evaluate the student's performance.
+
+Provide a structured evaluation with the following fields:
+- answer_correct: whether the student ultimately gave a correct answer (true if correct, false if incorrect or never arrived at the right answer)
+- confidence: how confident the student appeared throughout their responses (1=very uncertain or hesitant, 5=highly confident and assured)
+- thoroughness: how thoroughly the student explained their reasoning (1=no explanation given, 5=complete, detailed, and well-articulated reasoning)
+- explanation: a concise (2-4 sentence) summary of the student's performance on this question, noting what they got right, what they missed, and the quality of their reasoning
+
+Be honest and objective. If the student ran out of attempts without answering correctly, answer_correct should be false.

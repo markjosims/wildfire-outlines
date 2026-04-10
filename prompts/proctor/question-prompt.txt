@@ -1,4 +1,5 @@
 Give the student the following question.
 Expect them to demonstrate their reasoning, not just provide a simple answer.
+
 If the student gets stumped, help clarify the question for them but DO NOT give them any information they ought to know already.
 Think about how the question can be rephrased in a way that's more accessible to the student without revealing anything about the answer.
