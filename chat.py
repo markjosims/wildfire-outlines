@@ -27,7 +27,7 @@ if "OPENAI_API_KEY" not in os.environ:
     os.environ["OPENAI_API_KEY"] = get_secret()
 
 
-openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.4-mini")
+openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.4")
 client = OpenAI()
 model = outlines.from_openai(client, openai_model)
 
