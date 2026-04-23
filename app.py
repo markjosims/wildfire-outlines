@@ -11,7 +11,7 @@ from chat import (
     TestSummary,
     Response,
     handle_proctor_greeting,
-    handle_next_question,
+    handle_question,
     handle_student_response,
     handle_lm_student_response,
     handle_proctor_response,
@@ -84,7 +84,7 @@ def get_user_response_type() -> Optional[Literal["Answer", "Ask for clarificatio
     elif question_status == "no_attempts":
         chat_dict, _ = handle_question_grading(chat_dict, question_server)
         st.session_state.chat_dict = chat_dict
-        handle_next_question(chat_dict, question_server)
+        handle_question(chat_dict, question_server)
         user_response_type = None
         st.rerun()
     else:
@@ -123,6 +123,19 @@ if question_server.question_index >= 0:
         question_server.chapter_index / question_server.max_chapter,
         text=f"Chapter {question_server.chapter_index} of {question_server.max_chapter}",
     )
+
+# skip to later chapter button for testing
+target_chapter = st.number_input(
+    "Skip to chapter:",
+    min_value=1,
+    max_value=question_server.max_chapter,
+    value=question_server.chapter_index,
+    step=1,
+)
+if st.button("Go", type="secondary"):
+    question_server.skip_to_question(target_chapter, question_index=0)
+    handle_question(st.session_state.chat_dict, question_server, do_advance=False)
+    st.rerun()
 
 # end test early button
 if not st.session_state.get("test_ended") and st.button(

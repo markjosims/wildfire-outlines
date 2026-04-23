@@ -194,6 +194,12 @@ class QuestionServer:
         self.question_index = question_index
         return "next_question"
 
+    def skip_to_question(self, chapter_index: int, question_index: int) -> None:
+        self.chapter_index = chapter_index
+        self.question_index = question_index
+        self.num_answer_attempts = 0
+        self.num_clarifications = 0
+
 
 """
 Structured response types
@@ -328,7 +334,7 @@ def update_all_chats(
         student_chat = chat_dict["student_chat"]
         match role:
             case "question_server":
-                pass # student does not get question data
+                pass  # student does not get question data
             case "proctor":
                 student_chat.add_user_message(prompt)
             case "student":
@@ -388,14 +394,15 @@ def add_system_message(
     return chat_dict
 
 
-def handle_next_question(
-    chat_dict: dict[str, Chat], question_server: QuestionServer
+def handle_question(
+    chat_dict: dict[str, Chat], question_server: QuestionServer, do_advance: bool = True
 ) -> dict[str, Chat]:
     """
     Writes question data to chat as system prompt and writes question text
     to chat interface for student to read. Return updated chat.
     """
-    question_server.advance_question()
+    if do_advance:
+        question_server.advance_question()
     question_data = question_server.get_current_question_data()
     question_json = json.dumps(question_data, indent=2)
     question_message = question_server.format_question(**question_data)
@@ -497,7 +504,7 @@ def handle_proctor_greeting(
     greeting = Greeting.model_validate_json(response)
     chat_dict = update_all_chats(chat_dict, role="proctor", prompt=greeting.message)
 
-    chat_dict = handle_next_question(chat_dict, question_server)
+    chat_dict = handle_question(chat_dict, question_server)
     return chat_dict
 
 
@@ -568,7 +575,7 @@ def handle_proctor_response(
     # model decided to move on to next question
     if response.decision == "next_question":
         chat_dict, _ = handle_question_grading(chat_dict, question_server)
-        chat_dict = handle_next_question(chat_dict, question_server)
+        chat_dict = handle_question(chat_dict, question_server)
 
     return response, chat_dict
 
