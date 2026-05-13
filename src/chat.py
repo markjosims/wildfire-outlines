@@ -2,17 +2,24 @@
 Helper function for managing chat
 """
 
-from numpy import append
-import streamlit as st
 from openai import OpenAI
 from dotenv import load_dotenv
-from pydantic import BaseModel
 import json
 import outlines
 from outlines.inputs import Chat
 import os
 from typing import Literal
 import logging
+from src.assessment_server import AssessmentServer
+from src.models import (
+    ChapterSummary,
+    EvaluatorResponse,
+    Greeting,
+    QuestionGrade,
+    Response,
+    StudentAnswer,
+    TestSummary,
+)
 from secret import get_secret
 
 # configure logger
@@ -30,224 +37,6 @@ if "OPENAI_API_KEY" not in os.environ:
 openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.4")
 client = OpenAI()
 model = outlines.from_openai(client, openai_model)
-
-"""
-Question database management
-"""
-
-JSON_PATH = "./data/wildfire_questions_B.json"
-
-ADVANCE_TYPE = Literal["next_question", "next_chapter", "end_test"]
-
-QUESTION_TEMPLATE = """
-## Concept: {concept_description}
-**Type:** {question_format}
-**Question:** {question_text}
-
-You may ask {max_clarifications} clarification questions
-and you have {max_answer_attempts} attempts to answer correctly
-before the assessment will automatically progress to the next question.
-"""
-
-
-class QuestionServer:
-    def __init__(self, json_path: str = JSON_PATH) -> None:
-        self.json_path = json_path
-        self.data = self.load_data()
-
-        # chapter index corresponds to chapter number in course textbook
-        # and so it is 1-indexed
-        # question index corresponds to index in JSON array
-        # and so it is 0-indexed, but starts at None so
-        # 'handle_next_question' can set it to 0
-        # on first call
-        self.chapter_index = 1
-        self.question_index = None
-        self.max_chapter = max(
-            int(chapter_data["chapter"]) for chapter_data in self.data
-        )
-
-        # to prevent the student getting stuck on a single question,
-        # we allow n=5 clarification questions and m=5 answer attempts,
-        # then we automatically progress to the next question
-        self.num_clarifications = 0
-        self.num_answer_attempts = 0
-
-        self.max_clarifications = 5
-        self.max_answer_attempts = 5
-
-        self.question_evals: dict[int, list[QuestionGrade]] = {}
-
-    def add_question_grade(self, eval: "QuestionGrade", chapter: int) -> None:
-        if chapter not in self.question_evals:
-            self.question_evals[chapter] = []
-        self.question_evals[chapter].append(eval)
-
-    def get_chapter_data(
-        self, chapter_index: int
-    ) -> dict[str, str | list[dict[str, str]]]:
-        chapter_data = [
-            chapter for chapter in self.data if int(chapter["chapter"]) == chapter_index
-        ]
-        assert len(chapter_data) == 1
-        return chapter_data[0]
-
-    def attempted_chapters(self) -> list[int]:
-        return sorted(self.question_evals.keys())
-
-    def last_chapter_attempted(self) -> int:
-        return max(self.attempted_chapters())
-
-    def load_data(self) -> list[dict[str, str | list[dict[str, str]]]]:
-        with open(self.json_path) as f:
-            data = json.load(f)
-        return data
-
-    def get_current_chapter_data(
-        self,
-    ) -> dict[str, str | list[dict[str, str]]]:
-        chapter_data = [
-            chapter
-            for chapter in self.data
-            if int(chapter["chapter"]) == self.chapter_index
-        ]
-        assert len(chapter_data) == 1
-        return chapter_data[0]
-
-    def increment_clarifications(self):
-        self.num_clarifications = self.num_clarifications + 1
-
-    def increment_attempts(self):
-        self.num_answer_attempts = self.num_answer_attempts + 1
-
-    def remaining_clarifications(self) -> int:
-        return self.max_clarifications - self.num_clarifications
-
-    def remaining_attempts(self) -> int:
-        return self.max_answer_attempts - self.num_answer_attempts
-
-    def get_attempt_and_clarification_message(self) -> str:
-        remaining_attempts = self.remaining_attempts()
-        remaining_clarifications = self.remaining_clarifications()
-        if remaining_attempts <= 0:
-            return "Max answer attempts reached for this question!"
-
-        if remaining_clarifications <= 0:
-            return f"Max clarification questions reached. {remaining_attempts} answer attempts remain."
-
-        return f"There are {remaining_clarifications} clarification questions and {remaining_attempts} answer attempts remaining for this question."
-
-    def get_question_status(
-        self,
-    ) -> Literal["attempts_and_clarifications", "no_clarifications", "no_attempts"]:
-        if self.remaining_attempts() <= 0:
-            return "no_attempts"
-        if self.remaining_clarifications() <= 0:
-            return "no_clarifications"
-        return "attempts_and_clarifications"
-
-    def get_current_question_data(self) -> dict[str, str]:
-        chapter_data = self.get_current_chapter_data()
-        question_data = chapter_data["questions"][self.question_index]
-        assert type(question_data) is dict
-        question_data = {
-            "chapter": chapter_data["chapter"],
-            "title": chapter_data["title"],
-            **question_data,
-        }
-        return question_data
-
-    def format_question(self, **question_data) -> str:
-        question_str = QUESTION_TEMPLATE.format(
-            max_clarifications=self.max_clarifications,
-            max_answer_attempts=self.max_answer_attempts,
-            **question_data,
-        )
-        return question_str
-
-    def advance_question(self) -> ADVANCE_TYPE:
-        """
-        Advance to the next question within the chapter if available.
-        If at the end of the chapter, advance to the next chapter instead,
-        and if at end of last chapter, return 'end_test'.
-        """
-
-        self.num_answer_attempts = 0
-        self.num_clarifications = 0
-
-        if self.question_index is None:
-            question_index = 0
-        else:
-            question_index = self.question_index + 1
-
-        chapter_data = self.get_current_chapter_data()
-        chapter_num_questions = len(chapter_data["questions"])
-        if question_index >= chapter_num_questions:
-            # advance to next chapter and reset question index
-            self.question_index = 0
-            self.chapter_index += 1
-
-            if self.chapter_index > self.max_chapter:
-                return "end_test"
-            return "next_question"
-
-        self.question_index = question_index
-        return "next_question"
-
-    def skip_to_question(self, chapter_index: int, question_index: int) -> None:
-        self.chapter_index = chapter_index
-        self.question_index = question_index
-        self.num_answer_attempts = 0
-        self.num_clarifications = 0
-
-
-"""
-Structured response types
-"""
-
-
-class Greeting(BaseModel):
-    message: str
-
-
-class Response(BaseModel):
-    message: str
-    reasoning: str
-    decision: Literal["follow_up", "next_question"]
-
-
-class StudentAnswer(BaseModel):
-    message: str
-    decision: Literal["Answer", "Ask for clarification"]
-
-
-class EvaluatorResponse(BaseModel):
-    fairness_score: int
-    information_score: int
-    explanation_score: int
-    reasoning: str
-
-
-class QuestionGrade(BaseModel):
-    answer_correct: bool
-    confidence: Literal[1, 2, 3, 4, 5]
-    thoroughness: Literal[1, 2, 3, 4, 5]
-    explanation: str
-
-
-class ChapterSummary(BaseModel):
-    chapter: int
-    overall_score: Literal[1, 2, 3, 4, 5]
-    summary: str
-    strengths: list[str]
-    weaknesses: list[str]
-
-
-class TestSummary(BaseModel):
-    overall_score: Literal[1, 2, 3, 4, 5]
-    summary: str
-    strengths: list[str]
-    areas_for_improvement: list[str]
 
 
 """
@@ -293,7 +82,7 @@ def get_system_prompt(
 
 def update_all_chats(
     chat_dict: dict[str, Chat],
-    role: Literal["proctor", "student", "question_server"],
+    role: Literal["proctor", "student", "assessment_server"],
     prompt: str,
 ) -> dict[str, Chat]:
     """
@@ -301,9 +90,9 @@ def update_all_chats(
     is used for Student/Proctor interactions and question data,
     since these messages are shared across chat histories.
 
-    The only exception is question_server messages, which are
+    The only exception is assessment_server messages, which are
     not added to the Student chat history. This is because the
-    'question_server' role is reserved for adding ALL question
+    'assessment_server' role is reserved for adding ALL question
     data, including answers and explanations. The question itself
     is served directly from the QuestionServer object but is put
     to the chats under the Proctor role.
@@ -312,14 +101,14 @@ def update_all_chats(
     - system and question server messages always go to "system" role
     - main_chat: assistant is Proctor, user is Student
     - student_chat: assistant is Student, user is Proctor,
-        question_server messages are excluded
+        assessment_server messages are excluded
     - evaluator: assistant is Proctor, user is Student
     - grader: assistant is Proctor, user is Student
 
     """
     main_chat = chat_dict["main_chat"]
     match role:
-        case "question_server":
+        case "assessment_server":
             main_chat.add_system_message(prompt)
         case "proctor":
             main_chat.add_assistant_message(prompt)
@@ -333,7 +122,7 @@ def update_all_chats(
     if "student_chat" in chat_dict:
         student_chat = chat_dict["student_chat"]
         match role:
-            case "question_server":
+            case "assessment_server":
                 pass  # student does not get question data
             case "proctor":
                 student_chat.add_user_message(prompt)
@@ -345,7 +134,7 @@ def update_all_chats(
     if "evaluator_chat" in chat_dict:
         evaluator_chat = chat_dict["evaluator_chat"]
         match role:
-            case "question_server":
+            case "assessment_server":
                 evaluator_chat.add_system_message(prompt)
             case "proctor":
                 evaluator_chat.add_assistant_message(prompt)
@@ -357,7 +146,7 @@ def update_all_chats(
     if "grader_chat" in chat_dict:
         grader_chat = chat_dict["grader_chat"]
         match role:
-            case "question_server":
+            case "assessment_server":
                 pass  # grader receives no shared system messages
             case "proctor":
                 grader_chat.add_assistant_message(prompt)
@@ -395,17 +184,19 @@ def add_system_message(
 
 
 def handle_question(
-    chat_dict: dict[str, Chat], question_server: QuestionServer, do_advance: bool = True
+    chat_dict: dict[str, Chat],
+    assessment_server: AssessmentServer,
+    do_advance: bool = True,
 ) -> dict[str, Chat]:
     """
     Writes question data to chat as system prompt and writes question text
     to chat interface for student to read. Return updated chat.
     """
     if do_advance:
-        question_server.advance_question()
-    question_data = question_server.get_current_question_data()
+        assessment_server.advance_question()
+    question_data = assessment_server.get_current_question_data()
     question_json = json.dumps(question_data, indent=2)
-    question_message = question_server.format_question(**question_data)
+    question_message = assessment_server.format_question(**question_data)
 
     # proctor and evaluator both see full question data (including answer)
     system_message = f"Current question data: {question_json}"
@@ -425,7 +216,7 @@ def handle_question(
 def handle_student_response(
     chat_dict: dict[str, Chat],
     user_response_type: Literal["Answer", "Ask for clarification"],
-    question_server: QuestionServer,
+    assessment_server: AssessmentServer,
     prompt: str,
 ) -> dict[str, Chat]:
     """
@@ -434,15 +225,15 @@ def handle_student_response(
     """
     chat_dict = update_all_chats(chat_dict, role="student", prompt=prompt)
     if user_response_type == "Answer":
-        question_server.increment_attempts()
+        assessment_server.increment_attempts()
         system_prompt = get_system_prompt(role="proctor", prompt_type="answer")
     elif user_response_type == "Ask for clarification":
-        question_server.increment_clarifications()
+        assessment_server.increment_clarifications()
         system_prompt = get_system_prompt(role="proctor", prompt_type="clarify")
     else:
         raise ValueError(f"Unknown user response type {user_response_type}")
 
-    status_message = question_server.get_attempt_and_clarification_message()
+    status_message = assessment_server.get_attempt_and_clarification_message()
     chat_dict = update_all_chats(chat_dict, role="proctor", prompt=status_message)
     print(status_message)
 
@@ -454,7 +245,7 @@ def handle_student_response(
 
 def handle_lm_student_response(
     chat_dict: dict[str, Chat],
-    question_server: QuestionServer,
+    assessment_server: AssessmentServer,
 ) -> tuple[dict[str, Chat], Literal["Answer", "Ask for clarification"]]:
     """
     Prompt LLM student to respond to question.
@@ -472,7 +263,7 @@ def handle_lm_student_response(
     response = model(student_chat, StudentAnswer)
     answer: StudentAnswer = StudentAnswer.model_validate_json(response)
     chat_dict = handle_student_response(
-        chat_dict, answer.decision, question_server, answer.message
+        chat_dict, answer.decision, assessment_server, answer.message
     )
 
     return chat_dict, answer.decision
@@ -480,7 +271,7 @@ def handle_lm_student_response(
 
 def handle_proctor_greeting(
     chat_dict: dict[str, Chat],
-    question_server: QuestionServer,
+    assessment_server: AssessmentServer,
 ) -> dict[str, Chat]:
     """
     Adds initial system prompt to chat, generates assistant
@@ -504,13 +295,13 @@ def handle_proctor_greeting(
     greeting = Greeting.model_validate_json(response)
     chat_dict = update_all_chats(chat_dict, role="proctor", prompt=greeting.message)
 
-    chat_dict = handle_question(chat_dict, question_server)
+    chat_dict = handle_question(chat_dict, assessment_server)
     return chat_dict
 
 
 def handle_evaluator_response(
     chat_dict: dict[str, Chat],
-    question_server: QuestionServer,
+    assessment_server: AssessmentServer,
     prompt_type: Literal["answer", "clarify"],
 ) -> tuple[dict[str, Chat], EvaluatorResponse]:
     """
@@ -532,18 +323,18 @@ def handle_evaluator_response(
 
 def handle_question_grading(
     chat_dict: dict[str, Chat],
-    question_server: QuestionServer,
+    assessment_server: AssessmentServer,
 ) -> tuple[dict[str, Chat], QuestionGrade]:
     """
     Prompt the grader to evaluate the student's performance on the current question.
-    Stores the evaluation in question_server and returns updated chat_dict and the eval.
+    Stores the evaluation in assessment_server and returns updated chat_dict and the eval.
     """
     grade_prompt = get_system_prompt(role="grader", prompt_type="grade-question")
     chat_dict = add_system_message(chat_dict, chat="grader_chat", prompt=grade_prompt)
 
     response_json = model(chat_dict["grader_chat"], QuestionGrade)
     evaluation = QuestionGrade.model_validate_json(response_json)
-    question_server.add_question_grade(evaluation, question_server.chapter_index)
+    assessment_server.add_question_grade(evaluation, assessment_server.chapter_index)
     print(f"Question eval: {response_json}")
 
     return chat_dict, evaluation
@@ -551,7 +342,7 @@ def handle_question_grading(
 
 def handle_proctor_response(
     chat_dict: dict[str, Chat],
-    question_server: QuestionServer,
+    assessment_server: AssessmentServer,
 ) -> tuple[Response, dict[str, Chat]]:
     """
     Prompt model to respond to last student message.
@@ -574,22 +365,22 @@ def handle_proctor_response(
 
     # model decided to move on to next question
     if response.decision == "next_question":
-        chat_dict, _ = handle_question_grading(chat_dict, question_server)
-        chat_dict = handle_question(chat_dict, question_server)
+        chat_dict, _ = handle_question_grading(chat_dict, assessment_server)
+        chat_dict = handle_question(chat_dict, assessment_server)
 
     return response, chat_dict
 
 
 def handle_chapter_summary(
-    question_server: QuestionServer,
+    assessment_server: AssessmentServer,
     chapter_index: int,
 ) -> ChapterSummary:
     """
     Prompt the proctor to summarize a student's performance on a single chapter.
     Uses a fresh chat with the chapter's questions and evals as context.
     """
-    chapter_data = question_server.get_chapter_data(chapter_index)
-    evals = question_server.question_evals.get(chapter_index, [])
+    chapter_data = assessment_server.get_chapter_data(chapter_index)
+    evals = assessment_server.question_evals.get(chapter_index, [])
 
     context = json.dumps(
         {

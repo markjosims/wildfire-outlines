@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENT.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -33,7 +33,7 @@ The app loads from `data/wildfire_questions_B.json` by default (`JSON_PATH` in `
 
 **Two-file structure:**
 
-- `app.py` — Streamlit frontend. Manages `st.session_state` for `chat_dict` and `question_server`. Controls the human vs. AI assessment loop.
+- `app.py` — Streamlit frontend. Manages `st.session_state` for `chat_dict` and `assessment_server`. Controls the human vs. AI assessment loop.
 - `chat.py` — All LLM and question logic. Uses the `outlines` library wrapping OpenAI for structured JSON outputs.
 
 **Dual-chat design:**
