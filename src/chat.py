@@ -8,7 +8,7 @@ import json
 import outlines
 from outlines.inputs import Chat
 import os
-from typing import Literal
+from typing import Literal, Optional
 import logging
 from src.assessment_server import AssessmentServer
 from src.models import (
@@ -186,15 +186,24 @@ def add_system_message(
 def handle_question(
     chat_dict: dict[str, Chat],
     assessment_server: AssessmentServer,
-    do_advance: bool = True,
+    chapter: int,
+    q_idx: int,
 ) -> dict[str, Chat]:
     """
-    Writes question data to chat as system prompt and writes question text
-    to chat interface for student to read. Return updated chat.
+    Writes question data and base instructions to chat as system prompt
+    and writes question text to chat interface for student to read.
+    Return updated chat.
     """
-    if do_advance:
-        assessment_server.advance_question()
-    question_data = assessment_server.get_current_question_data()
+    # check if we already have a chat for this question
+    existing_chat = assessment_server.get_chat(chapter, q_idx)
+    if existing_chat:
+        return existing_chat
+
+    # every isolated question chat needs the base proctor instructions
+    base_prompt = get_system_prompt(role="proctor", prompt_type="initial")
+    chat_dict = add_system_message(chat_dict, chat="main_chat", prompt=base_prompt)
+
+    question_data = assessment_server.get_question_data(chapter, q_idx)
     question_json = json.dumps(question_data, indent=2)
     question_message = assessment_server.format_question(**question_data)
 
@@ -209,43 +218,58 @@ def handle_question(
 
     # all chats get question message
     chat_dict = update_all_chats(chat_dict, role="proctor", prompt=question_message)
+    
+    # save the chat to the server
+    assessment_server.set_chat(chapter, q_idx, chat_dict)
 
     return chat_dict
 
 
-def handle_student_response(
+def handle_student_message(
     chat_dict: dict[str, Chat],
-    user_response_type: Literal["Answer", "Ask for clarification"],
-    assessment_server: AssessmentServer,
     prompt: str,
 ) -> dict[str, Chat]:
     """
-    Adds user message to chat and then selects appropriate system prompt
-    based on user response type.
+    Adds user message to all chats.
     """
-    chat_dict = update_all_chats(chat_dict, role="student", prompt=prompt)
+    return update_all_chats(chat_dict, role="student", prompt=prompt)
+
+
+def handle_proctor_preparation(
+    chat_dict: dict[str, Chat],
+    assessment_server: AssessmentServer,
+    user_response_type: Literal["Answer", "Ask for clarification"],
+    chapter: int,
+    q_idx: int,
+) -> tuple[dict[str, Chat], str]:
+    """
+    Increments counts, adds status message and system prompt to chat.
+    Returns updated chat_dict and the status message.
+    """
     if user_response_type == "Answer":
-        assessment_server.increment_attempts()
+        assessment_server.increment_attempts(chapter, q_idx)
         system_prompt = get_system_prompt(role="proctor", prompt_type="answer")
     elif user_response_type == "Ask for clarification":
-        assessment_server.increment_clarifications()
+        assessment_server.increment_clarifications(chapter, q_idx)
         system_prompt = get_system_prompt(role="proctor", prompt_type="clarify")
     else:
         raise ValueError(f"Unknown user response type {user_response_type}")
 
-    status_message = assessment_server.get_attempt_and_clarification_message()
+    status_message = assessment_server.get_attempt_and_clarification_message(chapter, q_idx)
     chat_dict = update_all_chats(chat_dict, role="proctor", prompt=status_message)
     print(status_message)
 
     chat_dict = add_system_message(chat_dict, chat="main_chat", prompt=system_prompt)
     print(system_prompt)
 
-    return chat_dict
+    return chat_dict, status_message
 
 
 def handle_lm_student_response(
     chat_dict: dict[str, Chat],
     assessment_server: AssessmentServer,
+    chapter: int,
+    q_idx: int,
 ) -> tuple[dict[str, Chat], Literal["Answer", "Ask for clarification"]]:
     """
     Prompt LLM student to respond to question.
@@ -262,26 +286,25 @@ def handle_lm_student_response(
     # student response goes to all chats
     response = model(student_chat, StudentAnswer)
     answer: StudentAnswer = StudentAnswer.model_validate_json(response)
-    chat_dict = handle_student_response(
-        chat_dict, answer.decision, assessment_server, answer.message
+    
+    chat_dict = handle_student_message(chat_dict, answer.message)
+    chat_dict, _ = handle_proctor_preparation(
+        chat_dict, assessment_server, answer.decision, chapter, q_idx
     )
 
     return chat_dict, answer.decision
 
 
-def handle_proctor_greeting(
+def handle_intro_chat(
     chat_dict: dict[str, Chat],
-    assessment_server: AssessmentServer,
 ) -> dict[str, Chat]:
     """
     Adds initial system prompt to chat, generates assistant
-    greeting and adds first question.
+    greeting. Used for the global introduction phase.
     """
-
     # proctor system prompt only goes to main chat
     system_prompt = get_system_prompt(role="proctor", prompt_type="initial")
     chat_dict = add_system_message(chat_dict, chat="main_chat", prompt=system_prompt)
-    print(system_prompt)
 
     # evaluator initial prompt only goes to evaluator chat
     if "evaluator_chat" in chat_dict:
@@ -295,7 +318,6 @@ def handle_proctor_greeting(
     greeting = Greeting.model_validate_json(response)
     chat_dict = update_all_chats(chat_dict, role="proctor", prompt=greeting.message)
 
-    chat_dict = handle_question(chat_dict, assessment_server)
     return chat_dict
 
 
@@ -324,6 +346,8 @@ def handle_evaluator_response(
 def handle_question_grading(
     chat_dict: dict[str, Chat],
     assessment_server: AssessmentServer,
+    chapter: int,
+    q_idx: int,
 ) -> tuple[dict[str, Chat], QuestionGrade]:
     """
     Prompt the grader to evaluate the student's performance on the current question.
@@ -334,7 +358,7 @@ def handle_question_grading(
 
     response_json = model(chat_dict["grader_chat"], QuestionGrade)
     evaluation = QuestionGrade.model_validate_json(response_json)
-    assessment_server.add_question_grade(evaluation, assessment_server.chapter_index)
+    assessment_server.add_question_grade(evaluation, chapter, q_idx)
     print(f"Question eval: {response_json}")
 
     return chat_dict, evaluation
@@ -343,13 +367,13 @@ def handle_question_grading(
 def handle_proctor_response(
     chat_dict: dict[str, Chat],
     assessment_server: AssessmentServer,
+    chapter: Optional[int] = None,
+    q_idx: Optional[int] = None,
 ) -> tuple[Response, dict[str, Chat]]:
     """
     Prompt model to respond to last student message.
-    Model will decide either to proceed to the next question
-    or follow up on the current question. In the former case,
-    print the next question and then return. In the latter,
-    return immediately so that the student may respond.
+    If chapter and q_idx are provided, handles question-specific logic (grading).
+    Otherwise, handles generic proctor interaction (intro phase).
     """
 
     # first get response to student's last message
@@ -363,10 +387,9 @@ def handle_proctor_response(
     system_message = f"Full assistant response in JSON format: {response_json}"
     chat_dict = add_system_message(chat_dict, chat="main_chat", prompt=system_message)
 
-    # model decided to move on to next question
-    if response.decision == "next_question":
-        chat_dict, _ = handle_question_grading(chat_dict, assessment_server)
-        chat_dict = handle_question(chat_dict, assessment_server)
+    # model decided that question is complete (only if we are in a question)
+    if response.decision == "question_complete" and chapter is not None and q_idx is not None:
+        chat_dict, _ = handle_question_grading(chat_dict, assessment_server, chapter, q_idx)
 
     return response, chat_dict
 
@@ -380,7 +403,11 @@ def handle_chapter_summary(
     Uses a fresh chat with the chapter's questions and evals as context.
     """
     chapter_data = assessment_server.get_chapter_data(chapter_index)
-    evals = assessment_server.question_evals.get(chapter_index, [])
+    
+    # evals are now keyed by (chapter, q_idx)
+    evals = [
+        v for k, v in assessment_server.question_evals.items() if k[0] == chapter_index
+    ]
 
     context = json.dumps(
         {

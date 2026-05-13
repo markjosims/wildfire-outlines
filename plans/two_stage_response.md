@@ -13,7 +13,7 @@ The function `handle_proctor_response` gets a structured response with the `Resp
 class Response(BaseModel):
     message: str
     reasoning: str
-    decision: Literal["follow_up", "next_question"]
+    decision: Literal["follow_up", "question_complete"]
 ```
 
 ```python

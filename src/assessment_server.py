@@ -1,5 +1,5 @@
 import json
-from typing import Literal
+from typing import Literal, Optional
 from src.models import QuestionGrade
 
 """
@@ -7,8 +7,6 @@ Question database management
 """
 
 JSON_PATH = "./data/wildfire_questions_B.json"
-
-ADVANCE_TYPE = Literal["next_question", "next_chapter", "end_test"]
 
 QUESTION_TEMPLATE = """
 ## Concept: {concept_description}
@@ -26,30 +24,16 @@ class AssessmentServer:
         self.json_path = json_path
         self.data = self.load_data()
 
-        # chapter index corresponds to chapter number in course textbook
-        # and so it is 1-indexed
-        # question index corresponds to index in JSON array
-        # and so it is 0-indexed, but starts at None so
-        # 'handle_next_question' can set it to 0
-        # on first call
-        self.chapter_index = 1
-        self.question_index = None
         self.max_chapter = max(
             int(chapter_data["chapter"]) for chapter_data in self.data
         )
 
-        # active_question tracks what is currently displayed in the UI
-        # (chapter, question_index)
-        self.active_question: Optional[tuple[int, int]] = None
-
-        # to prevent the student getting stuck on a single question,
-        # we allow n=5 clarification questions and m=5 answer attempts,
-        # then we automatically progress to the next question
-        self.num_clarifications = 0
-        self.num_answer_attempts = 0
-
         self.max_clarifications = 5
         self.max_answer_attempts = 5
+
+        # attempts: dict[(chapter, q_idx), int]
+        self.num_clarifications: dict[tuple[int, int], int] = {}
+        self.num_answer_attempts: dict[tuple[int, int], int] = {}
 
         # chats: dict[(chapter, q_idx), chat_dict]
         self.chats: dict[tuple[int, int], dict[str, "Chat"]] = {}
@@ -96,62 +80,64 @@ class AssessmentServer:
 
     def last_chapter_attempted(self) -> int:
         chapters = self.attempted_chapters()
-        return max(chapters) if chapters else self.chapter_index
+        return max(chapters) if chapters else 1
+
+    def evaluate_remaining_questions(self, grade_callback) -> None:
+        """
+        Iterate through all questions that have chat history but no grade.
+        Call grade_callback(chat_dict, chapter, q_idx) for each.
+        """
+        for (chapter, q_idx), chat_dict in self.chats.items():
+            if (chapter, q_idx) not in self.question_evals:
+                # only grade if student has spoken
+                if len(chat_dict["main_chat"].messages) > 3: # greeting + question + status > 3
+                     grade_callback(chat_dict, chapter, q_idx)
 
     def load_data(self) -> list[dict[str, str | list[dict[str, str]]]]:
         with open(self.json_path) as f:
             data = json.load(f)
         return data
 
-    def get_current_chapter_data(
-        self,
-    ) -> dict[str, str | list[dict[str, str]]]:
-        chapter_data = [
-            chapter
-            for chapter in self.data
-            if int(chapter["chapter"]) == self.chapter_index
-        ]
-        assert len(chapter_data) == 1
-        return chapter_data[0]
+    def increment_clarifications(self, chapter: int, q_idx: int):
+        key = (chapter, q_idx)
+        self.num_clarifications[key] = self.num_clarifications.get(key, 0) + 1
 
-    def increment_clarifications(self):
-        self.num_clarifications = self.num_clarifications + 1
+    def increment_attempts(self, chapter: int, q_idx: int):
+        key = (chapter, q_idx)
+        self.num_answer_attempts[key] = self.num_answer_attempts.get(key, 0) + 1
 
-    def increment_attempts(self):
-        self.num_answer_attempts = self.num_answer_attempts + 1
+    def remaining_clarifications(self, chapter: int, q_idx: int) -> int:
+        return self.max_clarifications - self.num_clarifications.get((chapter, q_idx), 0)
 
-    def remaining_clarifications(self) -> int:
-        return self.max_clarifications - self.num_clarifications
+    def remaining_attempts(self, chapter: int, q_idx: int) -> int:
+        return self.max_answer_attempts - self.num_answer_attempts.get((chapter, q_idx), 0)
 
-    def remaining_attempts(self) -> int:
-        return self.max_answer_attempts - self.num_answer_attempts
-
-    def get_attempt_and_clarification_message(self) -> str:
-        remaining_attempts = self.remaining_attempts()
-        remaining_clarifications = self.remaining_clarifications()
-        if remaining_attempts <= 0:
+    def get_attempt_and_clarification_message(self, chapter: int, q_idx: int) -> str:
+        rem_attempts = self.remaining_attempts(chapter, q_idx)
+        rem_clarifications = self.remaining_clarifications(chapter, q_idx)
+        if rem_attempts <= 0:
             return "Max answer attempts reached for this question!"
 
-        if remaining_clarifications <= 0:
-            return f"Max clarification questions reached. {remaining_attempts} answer attempts remain."
+        if rem_clarifications <= 0:
+            return f"Max clarification questions reached. {rem_attempts} answer attempts remain."
 
-        return f"There are {remaining_clarifications} clarification questions and {remaining_attempts} answer attempts remaining for this question."
+        return f"There are {rem_clarifications} clarification questions and {rem_attempts} answer attempts remaining for this question."
 
     def get_question_status(
-        self,
+        self, chapter: int, q_idx: int
     ) -> Literal["attempts_and_clarifications", "no_clarifications", "no_attempts"]:
-        if self.remaining_attempts() <= 0:
+        if self.remaining_attempts(chapter, q_idx) <= 0:
             return "no_attempts"
-        if self.remaining_clarifications() <= 0:
+        if self.remaining_clarifications(chapter, q_idx) <= 0:
             return "no_clarifications"
         return "attempts_and_clarifications"
 
-    def get_current_question_data(self) -> dict[str, str]:
-        chapter_data = self.get_current_chapter_data()
-        question_data = chapter_data["questions"][self.question_index]
+    def get_question_data(self, chapter_index: int, question_index: int) -> dict[str, str]:
+        chapter_data = self.get_chapter_data(chapter_index)
+        question_data = chapter_data["questions"][question_index]
         assert type(question_data) is dict
         question_data = {
-            "chapter": chapter_data["chapter"],
+            "chapter": str(chapter_index),
             "title": chapter_data["title"],
             **question_data,
         }
@@ -164,38 +150,3 @@ class AssessmentServer:
             **question_data,
         )
         return question_str
-
-    def advance_question(self) -> ADVANCE_TYPE:
-        """
-        Advance to the next question within the chapter if available.
-        If at the end of the chapter, advance to the next chapter instead,
-        and if at end of last chapter, return 'end_test'.
-        """
-
-        self.num_answer_attempts = 0
-        self.num_clarifications = 0
-
-        if self.question_index is None:
-            question_index = 0
-        else:
-            question_index = self.question_index + 1
-
-        chapter_data = self.get_current_chapter_data()
-        chapter_num_questions = len(chapter_data["questions"])
-        if question_index >= chapter_num_questions:
-            # advance to next chapter and reset question index
-            self.question_index = 0
-            self.chapter_index += 1
-
-            if self.chapter_index > self.max_chapter:
-                return "end_test"
-            return "next_question"
-
-        self.question_index = question_index
-        return "next_question"
-
-    def skip_to_question(self, chapter_index: int, question_index: int) -> None:
-        self.chapter_index = chapter_index
-        self.question_index = question_index
-        self.num_answer_attempts = 0
-        self.num_clarifications = 0

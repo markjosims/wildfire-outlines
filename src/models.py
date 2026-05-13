@@ -42,7 +42,7 @@ class StudentAnswer(BaseModel):
 class Response(BaseModel):
     message: str
     reasoning: str
-    decision: Literal["follow_up", "next_question"]
+    decision: Literal["follow_up", "question_complete"]
 
 
 class Greeting(BaseModel):

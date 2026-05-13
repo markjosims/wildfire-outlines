@@ -5,11 +5,12 @@ Based off demo in https://docs.streamlit.io/develop/tutorials/chat-and-llm-apps/
 import streamlit as st
 from src.assessment_server import AssessmentServer
 from src.chat import (
-    handle_proctor_greeting,
+    handle_intro_chat,
     handle_question,
-    handle_student_response,
+    handle_student_message,
     handle_lm_student_response,
     handle_proctor_response,
+    handle_proctor_preparation,
     handle_evaluator_response,
     handle_question_grading,
     handle_chapter_summary,
@@ -18,9 +19,18 @@ from src.chat import (
 from outlines.inputs import Chat
 from typing import Optional, Literal
 
-from src.models import ChapterSummary, EvaluatorResponse, QuestionGrade, Response, TestSummary
+from src.models import (
+    ChapterSummary,
+    EvaluatorResponse,
+    QuestionGrade,
+    Response,
+    TestSummary,
+)
 
+st.set_page_config(layout="wide")
 st.title("Wildfire demo assessment")
+
+# --- Session State Initialization ---
 
 
 def get_assessment_server():
@@ -31,130 +41,154 @@ def get_assessment_server():
     return assessment_server
 
 
-def get_chat():
-    if "chat_dict" in st.session_state:
-        return st.session_state.chat_dict
-
-    # for now appending all chats regardless of assessment_type
-    # that way user can easily toggle AI response on and off
-    chat_dict = {
+def init_chat_dict():
+    return {
         "main_chat": Chat(),
         "student_chat": Chat(),
         "grader_chat": Chat(),
         "evaluator_chat": Chat(),
     }
 
-    chat_dict = handle_proctor_greeting(chat_dict, st.session_state.assessment_server)
-    st.session_state.chat_dict = chat_dict
-    return chat_dict
+
+if "active_question" not in st.session_state:
+    st.session_state.active_question = None  # None means greeting/intro
+
+assessment_server = get_assessment_server()
+
+# --- Helper Render Functions ---
 
 
-def reset_response_selection():
-    st.session_state.response_selection = None
+def render_greeting():
+    st.subheader("Welcome to the Wildfire Assessment")
 
+    if "intro_chat" not in st.session_state:
+        st.session_state.intro_chat = init_chat_dict()
+        with st.spinner("Proctor is joining..."):
+            st.session_state.intro_chat = handle_intro_chat(st.session_state.intro_chat)
 
-def get_user_response_type() -> Optional[Literal["Answer", "Ask for clarification"]]:
-    chat_dict: Chat = st.session_state.chat_dict
-    assessment_server: AssessmentServer = st.session_state.assessment_server
-    question_status = assessment_server.get_question_status()
+    intro_chat = st.session_state.intro_chat
 
-    answer_label = f"Answer ({assessment_server.remaining_attempts()}/{assessment_server.max_answer_attempts})"
-    clarify_label = f"Ask for clarification ({assessment_server.remaining_clarifications()}/{assessment_server.max_clarifications})"
+    # Print all non-system messages to chat
+    for message in intro_chat["main_chat"].messages:
+        if message["role"] == "system":
+            continue
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-    if question_status == "attempts_and_clarifications":
-        raw = st.pills(
-            label="Response type",
-            options=[answer_label, clarify_label],
-            default=None,
-            key="response_selection",
-        )
-    elif question_status == "no_clarifications":
-        raw = st.pills(
-            label="Response type",
-            options=[answer_label],
-            key="response_selection",
-        )
-    elif question_status == "no_attempts":
-        chat_dict, _ = handle_question_grading(chat_dict, assessment_server)
-        st.session_state.chat_dict = chat_dict
-        handle_question(chat_dict, assessment_server)
-        user_response_type = None
+    # Allow interaction in the intro phase
+    if prompt := st.chat_input("Ask about the exam setup...", key="intro_input"):
+        # We'll treat intro responses as generic (not Answer or Clarify)
+        handle_student_message(intro_chat, prompt)
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        with st.spinner("Proctor is responding..."):
+            proctor_res, _ = handle_proctor_response(intro_chat, assessment_server)
         st.rerun()
-    else:
-        raise ValueError("Unrecognized question status", question_status)
-
-    # map label back to canonical type
-    if raw == answer_label:
-        user_response_type = "Answer"
-    elif raw == clarify_label:
-        user_response_type = "Ask for clarification"
-    else:
-        user_response_type = None
-
-    # cache user response type so resetting button doesn't change it
-    if user_response_type:
-        st.session_state.last_response_type = user_response_type
-    elif st.session_state.get("last_response_type", None) is not None:
-        return st.session_state.last_response_type
-    return user_response_type
 
 
-get_assessment_server()
-get_chat()
+    st.divider()
+    if st.button("Start Assessment", type="primary"):
+        st.session_state.active_question = (1, 0)
+        st.rerun()
 
-# progress bars
-assessment_server: AssessmentServer = st.session_state.assessment_server
-if assessment_server.question_index >= 0:
-    chapter_data = assessment_server.get_current_chapter_data()
-    total_questions = len(chapter_data["questions"])
-    q_done = assessment_server.question_index + 1
-    st.progress(
-        q_done / total_questions,
-        text=f"Question {q_done} of {total_questions} in chapter {assessment_server.chapter_index}",
-    )
-    st.progress(
-        assessment_server.chapter_index / assessment_server.max_chapter,
-        text=f"Chapter {assessment_server.chapter_index} of {assessment_server.max_chapter}",
-    )
+
+def render_question(chapter: int, q_idx: int):
+    chat_dict = assessment_server.get_chat(chapter, q_idx)
+    if not chat_dict:
+        # Initialize with just question text
+        chat_dict = init_chat_dict()
+        with st.spinner("Loading question..."):
+            chat_dict = handle_question(chat_dict, assessment_server, chapter, q_idx)
+
+    # Print all non-system messages to chat
+    for message in chat_dict["main_chat"].messages:
+        if message["role"] == "system":
+            continue
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+
+def render_question_eval(chapter: int, q_idx: int):
+    eval: QuestionGrade = assessment_server.question_evals.get((chapter, q_idx))
+    if eval:
+        with st.expander("Question evaluation", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Correct", "Yes" if eval.answer_correct else "No")
+            col2.metric("Confidence", f"{eval.confidence}/5")
+            col3.metric("Thoroughness", f"{eval.thoroughness}/5")
+            st.caption(eval.explanation)
+
+
+def render_evaluator_feedback(chapter: int, q_idx: int):
+    if "evaluator_scores" in st.session_state and st.session_state.evaluator_scores:
+        latest: EvaluatorResponse = st.session_state.evaluator_scores[-1]
+        with st.expander("Evaluator feedback (last turn)", expanded=False):
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Fairness", f"{latest.fairness_score}/5")
+            col2.metric("Info withheld", f"{latest.information_score}/5")
+            col3.metric("Explanation required", f"{latest.explanation_score}/5")
+            st.caption(latest.reasoning)
+
+
+# --- Sidebar Navigation ---
 
 with st.sidebar:
+    st.header("Navigation")
 
-    assessment_type = st.pills(label="Student type:", options=["human", "ai"])
-
-    teacher_mode = st.checkbox(label="Teacher mode")
-
-    # skip to later chapter button for testing
-    target_chapter = st.number_input(
-        "Skip to chapter:",
-        min_value=1,
-        max_value=assessment_server.max_chapter,
-        value=assessment_server.chapter_index,
-        step=1,
-    )
-    if st.button("Go", type="secondary"):
-        assessment_server.skip_to_question(target_chapter, question_index=0)
-        handle_question(st.session_state.chat_dict, assessment_server, do_advance=False)
+    if st.button("Intro / Greeting"):
+        st.session_state.active_question = None
         st.rerun()
 
-    # end test early button
+    for ch_idx in range(1, assessment_server.max_chapter + 1):
+        chapter_data = assessment_server.get_chapter_data(ch_idx)
+        with st.expander(
+            f"Chapter {ch_idx}: {chapter_data['title']}",
+            expanded=bool(
+                st.session_state.active_question
+                and st.session_state.active_question[0] == ch_idx
+            ),
+        ):
+            for q_i, q_data in enumerate(chapter_data["questions"]):
+                icon = assessment_server.get_question_status_icon(ch_idx, q_i)
+                label = f"{icon} Q{q_i+1}: {q_data['concept_description'][:30]}..."
+                if st.button(
+                    label, key=f"nav_{ch_idx}_{q_i}", use_container_width=True
+                ):
+                    st.session_state.active_question = (ch_idx, q_i)
+                    st.rerun()
+
+    st.divider()
+    assessment_type = st.pills(label="Student type:", options=["human", "ai"])
+    teacher_mode = st.checkbox(label="Teacher mode")
+
     if not st.session_state.get("test_ended") and st.button(
-        "End test early", type="secondary"
+        "End test & summarize", type="primary"
     ):
         st.session_state.test_ended = True
+        st.rerun()
+
+# --- Main Content Area ---
 
 if st.session_state.get("test_ended"):
     if "test_summary" not in st.session_state:
-        with st.spinner("Generating results..."):
-            qs: AssessmentServer = st.session_state.assessment_server
+        with st.spinner("Evaluating remaining answers..."):
+
+            def grade_cb(cd, ch, qi):
+                with st.status(f"Grading Chapter {ch} Question {qi+1}..."):
+                    handle_question_grading(cd, assessment_server, ch, qi)
+
+            assessment_server.evaluate_remaining_questions(grade_cb)
+
+        with st.spinner("Generating final summaries..."):
             chapter_summaries: list[ChapterSummary] = []
-            for ch in qs.attempted_chapters():
-                chapter_summaries.append(handle_chapter_summary(qs, ch))
+            for ch in assessment_server.attempted_chapters():
+                chapter_summaries.append(handle_chapter_summary(assessment_server, ch))
             test_summary: TestSummary = handle_test_summary(chapter_summaries)
             st.session_state.chapter_summaries = chapter_summaries
             st.session_state.test_summary = test_summary
 
-    st.subheader("Test Results")
-
+    st.subheader("Final Test Results")
     ts: TestSummary = st.session_state.test_summary
     st.metric("Overall score", f"{ts.overall_score}/5")
     st.write(ts.summary)
@@ -186,132 +220,130 @@ if st.session_state.get("test_ended"):
 
     st.stop()
 
-# print all non-system messages to chat
-for message in st.session_state.chat_dict["main_chat"].messages:
-    if message["role"] == "system":
-        continue
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-# display proctor response from previous turn, if any
-# for now do this both in AI and human mode
-# at production time this will need to be hidden from the student
-if (
-    teacher_mode
-    and "proctor_response_list" in st.session_state
-    and st.session_state.proctor_response_list
-):
-    latest_response: Response = st.session_state.proctor_response_list[-1]
-    with st.expander("Proctor response"):
-        st.metric("Decision", latest_response.decision)
-        st.caption(latest_response.reasoning)
-
-# display evaluator scores from previous turn, if any
-if (
-    teacher_mode
-    and "evaluator_scores" in st.session_state
-    and st.session_state.evaluator_scores
-):
-    latest: EvaluatorResponse = st.session_state.evaluator_scores[-1]
-    with st.expander("Evaluator scores (last proctor turn)"):
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Fairness", f"{latest.fairness_score}/5")
-        col2.metric("Info withheld", f"{latest.information_score}/5")
-        col3.metric("Explanation required", f"{latest.explanation_score}/5")
-        st.caption(latest.reasoning)
-
-# display question eval from previous question, if any
-if teacher_mode and assessment_server.question_evals:
-    chapter_index = assessment_server.last_chapter_attempted()
-    latest_eval: QuestionGrade = assessment_server.question_evals[chapter_index][-1]
-    with st.expander("Question eval (last question)"):
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Correct", "Yes" if latest_eval.answer_correct else "No")
-        col2.metric("Confidence", f"{latest_eval.confidence}/5")
-        col3.metric("Thoroughness", f"{latest_eval.thoroughness}/5")
-        st.caption(latest_eval.explanation)
-
-# get ai student response, if applicable
-if assessment_type == "ai":
-    chat_dict = st.session_state.chat_dict
-    assessment_server = st.session_state.assessment_server
-    # wait for user input before getting student model answer
-    if st.button("Get student answer"):
-        st.write("Loading answer...")
-        chat_dict, student_decision = handle_lm_student_response(
-            chat_dict, assessment_server
-        )
-        proctor_response, chat_dict = handle_proctor_response(
-            chat_dict, assessment_server
-        )
-
-        if "proctor_response_list" not in st.session_state:
-            st.session_state.proctor_response_list = []
-        st.session_state.proctor_response_list.append(proctor_response)
-
-        evaluator_prompt_type = "answer" if student_decision == "Answer" else "clarify"
-        chat_dict, evaluation = handle_evaluator_response(
-            chat_dict, assessment_server, evaluator_prompt_type
-        )
-
-        if "evaluator_scores" not in st.session_state:
-            st.session_state.evaluator_scores = []
-        st.session_state.evaluator_scores.append(evaluation)
-        st.session_state.chat_dict = chat_dict
-
-        st.rerun()
-
-
-# get user's response to assistant's last message
-# user must select response type before chat will be enabled
+if st.session_state.active_question is None:
+    render_greeting()
 else:
-    # allow user to choose between "answer" and "ask for clarification"
-    # based on previous question
-    user_response_type = get_user_response_type()
+    chapter, q_idx = st.session_state.active_question
+    st.subheader(f"Chapter {chapter} - Question {q_idx + 1}")
 
-    if prompt := st.chat_input(
-        "Type response here",
-        disabled=not user_response_type,
-        on_submit=reset_response_selection,
+    render_question(chapter, q_idx)
+
+    if teacher_mode:
+        render_question_eval(chapter, q_idx)
+        render_evaluator_feedback(chapter, q_idx)
+
+    # --- Interaction Logic ---
+
+    chat_dict = assessment_server.get_chat(chapter, q_idx)
+
+    def reset_response_selection():
+        st.session_state.response_selection = None
+
+    def get_user_response_type() -> (
+        Optional[Literal["Answer", "Ask for clarification"]]
     ):
-        assert user_response_type is not None
-        # prepend response type to prompt for transparency when printed to chat
-        prompt = f"({user_response_type}) {prompt}"
+        q_status = assessment_server.get_question_status(chapter, q_idx)
 
-        chat_dict = st.session_state.chat_dict
-        assessment_server = st.session_state.assessment_server
-        handle_student_response(chat_dict, user_response_type, assessment_server, prompt)
+        rem_attempts = assessment_server.remaining_attempts(chapter, q_idx)
+        rem_clari = assessment_server.remaining_clarifications(chapter, q_idx)
 
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # reset last response type as we no longer need it
-        st.session_state.last_response_type = None
-
-    # give user prompt to assistant and let assistant decide to follow up
-    # or ask next question
-    if prompt:
-        chat_dict = st.session_state.chat_dict
-        assessment_server = st.session_state.assessment_server
-        proctor_response, chat_dict = handle_proctor_response(
-            chat_dict, assessment_server
+        answer_label = (
+            f"Answer ({rem_attempts}/{assessment_server.max_answer_attempts})"
         )
+        clarify_label = f"Clarify ({rem_clari}/{assessment_server.max_clarifications})"
 
-        if "proctor_response_list" not in st.session_state:
-            st.session_state.proctor_response_list = []
-        st.session_state.proctor_response_list.append(proctor_response)
+        if q_status == "attempts_and_clarifications":
+            raw = st.pills(
+                "Response type",
+                [answer_label, clarify_label],
+                key=f"pills_{chapter}_{q_idx}",
+            )
+        elif q_status == "no_clarifications":
+            raw = st.pills(
+                "Response type", [answer_label], key=f"pills_{chapter}_{q_idx}"
+            )
+        elif q_status == "no_attempts":
+            st.warning("Max attempts reached. Please move to the next question.")
+            return None
+        else:
+            return None
 
-        evaluator_prompt_type = (
-            "answer" if user_response_type == "Answer" else "clarify"
-        )
-        chat_dict, evaluation = handle_evaluator_response(
-            chat_dict, assessment_server, evaluator_prompt_type
-        )
+        if raw == answer_label:
+            return "Answer"
+        if raw == clarify_label:
+            return "Ask for clarification"
+        return None
 
-        if "evaluator_scores" not in st.session_state:
-            st.session_state.evaluator_scores = []
-        st.session_state.evaluator_scores.append(evaluation)
-        st.session_state.chat_dict = chat_dict
+    if assessment_type == "ai":
+        if st.button("Get student answer", key=f"ai_btn_{chapter}_{q_idx}"):
+            with st.spinner("Student is thinking..."):
+                chat_dict, decision = handle_lm_student_response(
+                    chat_dict, assessment_server, chapter, q_idx
+                )
+                proctor_res, chat_dict = handle_proctor_response(
+                    chat_dict, assessment_server, chapter, q_idx
+                )
 
-        # rerun app so messages will be printed, as handled above
-        st.rerun()
+                eval_type = "answer" if decision == "Answer" else "clarify"
+                chat_dict, evaluation = handle_evaluator_response(
+                    chat_dict, assessment_server, eval_type
+                )
+
+                if "evaluator_scores" not in st.session_state:
+                    st.session_state.evaluator_scores = []
+                st.session_state.evaluator_scores.append(evaluation)
+                st.rerun()
+    else:
+        user_response_type = get_user_response_type()
+        if prompt := st.chat_input(
+            "Your response...",
+            disabled=not user_response_type,
+            key=f"input_{chapter}_{q_idx}",
+        ):
+            full_prompt = f"({user_response_type}) {prompt}"
+
+            # Eagerly display student message
+            with st.chat_message("user"):
+                st.markdown(full_prompt)
+            handle_student_message(chat_dict, full_prompt)
+
+            # Eagerly display status message
+            chat_dict, status = handle_proctor_preparation(
+                chat_dict, assessment_server, user_response_type, chapter, q_idx
+            )
+            with st.chat_message("assistant"):
+                st.markdown(status)
+
+            with st.spinner("Proctor is responding..."):
+                proctor_res, chat_dict = handle_proctor_response(
+                    chat_dict, assessment_server, chapter, q_idx
+                )
+
+                eval_type = "answer" if user_response_type == "Answer" else "clarify"
+                chat_dict, evaluation = handle_evaluator_response(
+                    chat_dict, assessment_server, eval_type
+                )
+
+                if "evaluator_scores" not in st.session_state:
+                    st.session_state.evaluator_scores = []
+                st.session_state.evaluator_scores.append(evaluation)
+            st.rerun()
+
+    # Next Question button logic
+    def get_next_indices(ch, q_i):
+        chapter_data = assessment_server.get_chapter_data(ch)
+        if q_i + 1 < len(chapter_data["questions"]):
+            return (ch, q_i + 1)
+        if ch + 1 <= assessment_server.max_chapter:
+            return (ch + 1, 0)
+        return "end_test"
+
+    next_indices = get_next_indices(chapter, q_idx)
+    if next_indices != "end_test":
+        if st.button("Next Question ➡️", use_container_width=True):
+            st.session_state.active_question = next_indices
+            st.rerun()
+    else:
+        if st.button("Finish Assessment 🏁", type="primary", use_container_width=True):
+            st.session_state.test_ended = True
+            st.rerun()

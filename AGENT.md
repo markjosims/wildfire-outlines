@@ -45,7 +45,7 @@ The system maintains two parallel `Chat` objects (from `outlines.inputs.Chat`):
 `update_all_chats()` synchronizes messages across both chats with correct role assignments. System messages are sent selectively — full question JSON and proctor reasoning go only to `main_chat`; student instructions go only to `student_chat`.
 
 **Question progression:**
-`QuestionServer` tracks chapter/question indexes and attempt/clarification counts. The proctor's `Response` pydantic model includes a `decision` field (`follow_up` | `next_question`) that drives when to advance. Each question has a cap of 5 clarification questions and 5 answer attempts before auto-advancing.
+`QuestionServer` tracks chapter/question indexes and attempt/clarification counts. The proctor's `Response` pydantic model includes a `decision` field (`follow_up` | `question_complete`) that signifies when a question is finished.
 
 **Prompt system:**
 Prompts are loaded at runtime from `prompts/{role}/{type}-prompt.txt`. The proctor has four prompt types (`initial`, `question`, `answer`, `clarify`) injected as system messages depending on the student's last action (answer vs. clarification request).
