@@ -179,9 +179,8 @@ def load_assessment_state(username):
 Modify `app.py` to:
 
 1. Initialize the database on startup.
-2. Provide a login/registration UI if `st.session_state.username` is not set.
+2. Provide a login/registration UI using helper functions if `st.session_state.username` is not set.
 3. Once logged in, load the state into `AssessmentServer`.
-4. Add save hooks when the assessment progresses.
 
 **Changes required in `app.py`:**
 
@@ -192,61 +191,88 @@ from src.db import init_db, register_user, verify_user, save_assessment_state, l
 # Initialize DB
 init_db()
 
+# --- Auth UI Helpers ---
+def render_login():
+    with st.form("login_form"):
+        user = st.text_input("Username")
+        pw = st.text_input("Password", type="password")
+        if st.form_submit_button("Login"):
+            if verify_user(user, pw):
+                st.session_state.username = user
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
+
+def render_register():
+    with st.form("register_form"):
+        new_user = st.text_input("New Username")
+        new_pw = st.text_input("New Password", type="password")
+        if st.form_submit_button("Register"):
+            if register_user(new_user, new_pw):
+                st.success("Registered! You can now login.")
+            else:
+                st.error("Username already exists.")
+
 # --- Auth Flow ---
 if "username" not in st.session_state:
     st.subheader("Login or Register")
     tab1, tab2 = st.tabs(["Login", "Register"])
-    
-    with tab1:
-        with st.form("login_form"):
-            user = st.text_input("Username")
-            pw = st.text_input("Password", type="password")
-            if st.form_submit_button("Login"):
-                if verify_user(user, pw):
-                    st.session_state.username = user
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials")
-                    
-    with tab2:
-        with st.form("register_form"):
-            new_user = st.text_input("New Username")
-            new_pw = st.text_input("New Password", type="password")
-            if st.form_submit_button("Register"):
-                if register_user(new_user, new_pw):
-                    st.success("Registered! You can now login.")
-                else:
-                    st.error("Username already exists.")
-                    
+    with tab1: render_login()
+    with tab2: render_register()
     st.stop() # Halt execution until logged in
 
 # --- Server Initialization ---
 def get_assessment_server():
     if "assessment_server" in st.session_state:
         return st.session_state.assessment_server
-        
+
     assessment_server = AssessmentServer()
-    
+
     # Load state from DB
     saved_state = load_assessment_state(st.session_state.username)
     if saved_state:
         assessment_server.from_dict(saved_state)
-        
+
     st.session_state.assessment_server = assessment_server
     return assessment_server
-
-# ... existing app logic ...
-
-# --- Save Hook ---
-# To ensure persistence, we need to save the state after any modification.
-# A simple approach is to add a save call at the end of functions that mutate the state,
-# or provide a wrapper/callback in `AssessmentServer` that triggers `save_assessment_state(st.session_state.username, self.to_dict())`.
 ```
 
-## 6. Next Steps
+## 6. State Saving Triggers
+
+To ensure the state is persisted reliably without rewriting the core `AssessmentServer` logic, we will introduce a save callback pattern or explicit save calls at key mutation points.
+
+Since `AssessmentServer` doesn't know about `st.session_state.username` or the DB directly, the simplest approach is to export a wrapper in `app.py` or within the handler functions.
+
+**Where to trigger `save_assessment_state`:**
+The state mutates heavily within the `src/chat.py` handler functions. We should update the handler signatures to accept an optional `save_callback`, or more simply, just call a generic `assessment_server.save()` method which we can monkey-patch or subclass in `app.py`.
+
+*A cleaner architecture:* Pass the current `username` to the `AssessmentServer` upon initialization, and let the server handle its own saving internally by importing from `src.db`.
+
+```python
+# In src/assessment_server.py
+from src.db import save_assessment_state
+
+class AssessmentServer:
+    def __init__(self, json_path: str = JSON_PATH, username: str = None) -> None:
+        self.username = username
+        # ...
+
+    def save_state(self):
+        if self.username:
+            save_assessment_state(self.username, self.to_dict())
+
+    # Then call self.save_state() at the end of:
+    # - set_chat
+    # - add_question_grade
+    # - increment_clarifications
+    # - increment_attempts
+```
+
+This ensures that *any* mutation automatically triggers a database save, abstracting it away from both `app.py` UI logic and `src/chat.py` interaction logic.
+
+## 7. Next Steps
 
 1. Update `requirements.txt` with `argon2-cffi`.
 2. Create `src/db.py` with the SQLite and Argon2 logic.
-3. Modify `src/assessment_server.py` to include `to_dict` and `from_dict`.
-4. Update `app.py` to require login, manage the `st.session_state.username`, and hook up the load functions.
-5. Determine the exact points in `app.py` or `src/chat.py` to trigger `save_assessment_state`.
+3. Modify `src/assessment_server.py` to include `to_dict`, `from_dict`, and the internal `save_state` hook detailed in Section 6.
+4. Update `app.py` to require login, manage the `st.session_state.username`, use the new UI helper functions, and initialize the `AssessmentServer` with the username.
