@@ -1,5 +1,65 @@
 """
-Helper function for managing chat
+Helper functions for managing assessment chat.
+Chats are tracked with a `chat_dict` object of type dict[str, Chat]
+mapping a Role to a Chat object.
+
+Roles indicate the various actors in the chat, including the "main" actors
+(the student and the proctor) as well as "background" actors (grader and evaluator).
+Each Role has a unique chat history controlling what context that Role will receive
+when prompted for an input.
+
+The Participants are the main actors, i.e. the student and the proctor.
+Each conversational turn consists of an interaction between these two participants.
+The grader LLM is called when the proctor decides to conclude the chat for a particular
+question (either because the student has answered satisfactorily or the student has run
+out of answer attempts), and the evaluator LLM is called after every proctor interaction.
+
+A unique Prompt exists for each Role matching the given interaction type.
+See prompts/README.md for more information on Roles, Participants and Prompts.
+
+Implements following types:
+- RoleType
+- ParticipantType
+- PromptType
+
+Implements following functions:
+- get_system_prompt:
+    Retrieve appropriate system prompt from text file following the format
+    'prompts/ROLE/PROMPT_TYPE-prompt.txt'
+- update_all_chats:
+    Given some message output by the proctor, student or the assessment server
+    object, update all applicable roles in the chat dict
+- add_system_message:
+    Adds system message to appropriate chat in chat dict
+- handle_question:
+    Return existing chat from `AssessmentServer` or create a new one if needed,
+    giving appropriate system messages to proctor and evaluator and printing
+    question text for student.
+- handle_student_message:
+    Add's student's message text to all chats
+- handle_proctor_preparation:
+    Parses student response as answer or clarification request, checks against
+    number of remaining clarifications and answers and updates chats for proctor
+- handle_lm_student_response:
+    In LLM-as-student mode, get the student's response to a question and parse
+    as answer or clarification.
+- handle_intro_chat:
+    Put initial system prompt to proctor and evaluator and generate greeting
+    from proctor.
+- handle_evaluator_response:
+    Get `EvaluatorResponse` from evaluator LLM on previous conversation turn from proctor
+- handle_question_grading:
+    Get `QuestionGrade` from proctor LLM after proctor decides question is sufficiently
+    answered and updates `AssessmentServer`
+- handle_proctor_response:
+    Get response from proctor LLM, either to student's general questions (in intro mode)
+    or to a student turn in a question chat
+- handle_chapter_summary:
+    Given grades for all questions in a chapter, prompt grader LLM to summarize
+    student performance in that chapter
+- handle_test_summary:
+    Given performance summaries for each chapter, prompt grader LLM to summarize
+    student performance for entire test
 """
 
 from openai import OpenAI
@@ -39,22 +99,10 @@ client = OpenAI()
 model = outlines.from_openai(client, openai_model)
 
 
-"""
-Prompt functions
-"""
-
-# RoleType refers to the various roles the LLM may assume in a conversation
-# - Proctor: Role for giving test to student
-# - Student: (In AI student mode) Role for answering Proctor model questions
-# - Evaluator: Role for assessing Proctor's responses
-# - Grader: Role for assinging a grade to each question's response
-# Each of these four roles gets a unique chat history so that
-# we can control what context they have access to
+# Unique roles LLMs may take
 RoleType = Literal["proctor", "student", "evaluator", "grader"]
 
-# ParticipantType refers to the main interlocutors of the chat
-# This is used when updating multiple chats at once to decide
-# what role the message should be given in each chat
+# Main interlocutors
 ParticipantType = Literal["proctor", "student", "system"]
 
 # Enumeration of all prompt types stored in prompts/ folder
@@ -68,11 +116,17 @@ PromptType = Literal[
     "test-summary",
 ]
 
+"""
+Prompt functions
+"""
 
 def get_system_prompt(
     role: RoleType = "proctor",
     prompt_type: PromptType = "initial",
 ) -> str:
+    """
+    Retrieve system prompt text for a given role and prompt type.
+    """
 
     system_prompt_path = f"./prompts/{role}/{prompt_type}-prompt.txt"
     with open(system_prompt_path) as f:
@@ -323,7 +377,6 @@ def handle_intro_chat(
 
 def handle_evaluator_response(
     chat_dict: dict[str, Chat],
-    assessment_server: AssessmentServer,
     prompt_type: Literal["answer", "clarify"],
 ) -> tuple[dict[str, Chat], EvaluatorResponse]:
     """
