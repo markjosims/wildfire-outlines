@@ -21,7 +21,7 @@ This has the following advantages:
 
 ## Test loop
 
-### Notes on current implementation
+### Test loop: current implementation
 
 The `AssessmentServer` class will need major rewriting.
 Rather than simply serving question data, it should be the new hub for question data, student responses, and evaluator judgments.
@@ -40,7 +40,7 @@ for message in st.session_state.chat_dict["main_chat"].messages:
 
 Likewise the output of all of the `handle` functions will need to be tracked the active question rather than appending to a global `chat_dict` object.
 
-### Changes to make
+### Test loop: Changes to make
 
 By file:
 
@@ -56,7 +56,7 @@ By file:
 
 ## Student feedback
 
-### Notes on current implementation
+### Student feedback: Current implementation
 
 Uses `handle_chapter_summary` to evaluate each chapter, and then uses `handle_test_summary` to summarize the entire test.
 
@@ -102,7 +102,7 @@ def handle_question_grading(
     return chat_dict, evaluation
 ```
 
-### Changes to make
+### Student feedback: Changes to make
 
 On test conclusion, generate a proctor evaluation for every question that has a student response but no proctor evaluation.
 Modify the following files:

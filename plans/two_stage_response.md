@@ -23,9 +23,36 @@ response_json = model(chat_dict["main_chat"], Response)
 response = Response.model_validate_json(response_json)
 ```
 
+Note `PromptType` will need to be updated
+
+```python
+# Enumeration of all prompt types stored in prompts/ folder
+PromptType = Literal[
+    "initial",
+    "question",
+    "clarify",
+    "answer",
+    "grade-question",
+    "chapter-summary",
+    "test-summary",
+]
+# -> updated to
+PromptType = Literal[
+    "initial",
+    "question",
+    "clarify",
+    "decide-answer-response",
+    "give-student-response",
+    "grade-question",
+    "chapter-summary",
+    "test-summary",
+]
+```
+
 ## Files to modify
 
-- @prompts/proctor/answer-prompt.txt: split into two new files "decide-answer-response.txt" and "give-student-response.txt" reflecting stage.
+- @prompts/proctor/answer-prompt.txt: split into two new files **"decide-answer-response.txt"** and **"give-student-response.txt"** reflecting stage.
+- @prompts/evaluator/answer-prompt:txt: rename to **"prompts/evaluator/give-student-response.txt"**
 - @src/models.py: remove "message" attribute from `Response` model
 - @src/chat.py: split function `handle_proctor_response` into two new functions: `handle_proctor_response_decision` and `handle_proctor_student_response`
   - `handle_proctor_response_decision` prompts with "decide-answer-response.txt", llm output `Response` model
