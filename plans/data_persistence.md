@@ -6,10 +6,10 @@ At present, assessment state is stored purely in `streamlit` context, and questi
 
 ## Architecture
 
-1.  **SQLite Database:** Centralized storage for all entities.
-2.  **SQLModel ORM:** We use `SQLModel` (built on Pydantic and SQLAlchemy) for type-safe, relational data management.
-3.  **Authentication:** `argon2-cffi` for secure password hashing.
-4.  **Migration Script:** A new script `scripts/migrate_questions.py` will import existing JSON questions into the database using SQLModel sessions.
+1. **SQLite Database:** Centralized storage for all entities.
+2. **SQLModel ORM:** We use `SQLModel` (built on Pydantic and SQLAlchemy) for type-safe, relational data management.
+3. **Authentication:** `argon2-cffi` for secure password hashing.
+4. **Migration Script:** A new script `scripts/migrate_questions.py` will import existing JSON questions into the database using SQLModel sessions.
 
 ---
 
@@ -191,8 +191,8 @@ class AssessmentServer:
 
 ## 5. Next Steps
 
-1.  **Add `sqlmodel` and `argon2-cffi`** to `requirements.txt`.
-2.  **Implement `scripts/migrate_questions.py`** to seed `wildfire.db`.
-3.  **Update `src/models.py`** with SQLModel classes.
-4.  **Create `src/db.py`** with `DBManager`.
-5.  **Refactor `src/assessment_server.py` and `app.py`**.
+1. **Add `sqlmodel` and `argon2-cffi`** to `requirements.txt`.
+2. **Implement `scripts/migrate_questions.py`** to seed `wildfire.db`.
+3. **Update `src/models.py`** with SQLModel classes.
+4. **Create `src/db.py`** with `DBManager`.
+5. **Refactor `src/assessment_server.py` and `app.py`**.

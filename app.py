@@ -26,6 +26,7 @@ from src.models import (
     Response,
     TestSummary,
 )
+from src.db import DataStore
 
 st.set_page_config(layout="wide")
 st.title("Wildfire demo assessment")
@@ -34,11 +35,12 @@ st.title("Wildfire demo assessment")
 
 
 def get_assessment_server():
-    if "assessment_server" in st.session_state:
+    if "datastore" in st.session_state:
         return st.session_state.assessment_server
-    assessment_server = AssessmentServer()
-    st.session_state.assessment_server = assessment_server
-    return assessment_server
+    db = DataStore()
+    server = AssessmentServer(db=db)
+    st.session_state.assessment_server = server
+    return server
 
 
 def init_chat_dict():
@@ -93,13 +95,13 @@ def render_greeting():
         st.rerun()
 
 
-def render_question(chapter: int, q_idx: int):
-    chat_dict = assessment_server.get_chat(chapter, q_idx)
+def render_question(chapter: int, question_index: int):
+    chat_dict = assessment_server.get_chat(chapter, question_index)
     if not chat_dict:
         # Initialize with just question text
         chat_dict = init_chat_dict()
         with st.spinner("Loading question..."):
-            chat_dict = handle_question(chat_dict, assessment_server, chapter, q_idx)
+            chat_dict = handle_question(chat_dict, assessment_server, chapter, question_index)
 
     # Print all non-system messages to chat
     for message in chat_dict["main_chat"].messages:
@@ -109,8 +111,8 @@ def render_question(chapter: int, q_idx: int):
             st.markdown(message["content"])
 
 
-def render_question_eval(chapter: int, q_idx: int):
-    eval: QuestionGrade = assessment_server.question_evals.get((chapter, q_idx))
+def render_question_eval(chapter: int, question_index: int):
+    eval: QuestionGrade = assessment_server.question_evals.get((chapter, question_index))
     if eval:
         with st.expander("Question evaluation", expanded=False):
             col1, col2, col3 = st.columns(3)
@@ -120,7 +122,7 @@ def render_question_eval(chapter: int, q_idx: int):
             st.caption(eval.explanation)
 
 
-def render_evaluator_feedback(chapter: int, q_idx: int):
+def render_evaluator_feedback(chapter: int, question_index: int):
     if "evaluator_scores" in st.session_state and st.session_state.evaluator_scores:
         latest: EvaluatorResponse = st.session_state.evaluator_scores[-1]
         with st.expander("Evaluator feedback (last turn)", expanded=False):
@@ -149,13 +151,13 @@ with st.sidebar:
                 and st.session_state.active_question[0] == ch_idx
             ),
         ):
-            for q_i, q_data in enumerate(chapter_data["questions"]):
-                icon = assessment_server.get_question_status_icon(ch_idx, q_i)
-                label = f"{icon} Q{q_i+1}: {q_data['concept_description'][:30]}..."
+            for question_index, q_data in enumerate(chapter_data["questions"]):
+                icon = assessment_server.get_question_status_icon(ch_idx, question_index)
+                label = f"{icon} Q{question_index+1}: {q_data['concept_description'][:30]}..."
                 if st.button(
-                    label, key=f"nav_{ch_idx}_{q_i}", use_container_width=True
+                    label, key=f"nav_{ch_idx}_{question_index}", use_container_width=True
                 ):
-                    st.session_state.active_question = (ch_idx, q_i)
+                    st.session_state.active_question = (ch_idx, question_index)
                     st.rerun()
 
     st.divider()
@@ -174,16 +176,16 @@ if st.session_state.get("test_ended"):
     if "test_summary" not in st.session_state:
         with st.spinner("Evaluating remaining answers..."):
 
-            def grade_cb(cd, ch, qi):
-                with st.status(f"Grading Chapter {ch} Question {qi+1}..."):
-                    handle_question_grading(cd, assessment_server, ch, qi)
+            def grade_cb(cd, chapter, qi):
+                with st.status(f"Grading Chapter {chapter} Question {qi+1}..."):
+                    handle_question_grading(cd, assessment_server, chapter, qi)
 
             assessment_server.evaluate_remaining_questions(grade_cb)
 
         with st.spinner("Generating final summaries..."):
             chapter_summaries: list[ChapterSummary] = []
-            for ch in assessment_server.attempted_chapters():
-                chapter_summaries.append(handle_chapter_summary(assessment_server, ch))
+            for chapter in assessment_server.attempted_chapters():
+                chapter_summaries.append(handle_chapter_summary(assessment_server, chapter))
             test_summary: TestSummary = handle_test_summary(chapter_summaries)
             st.session_state.chapter_summaries = chapter_summaries
             st.session_state.test_summary = test_summary
@@ -223,18 +225,18 @@ if st.session_state.get("test_ended"):
 if st.session_state.active_question is None:
     render_greeting()
 else:
-    chapter, q_idx = st.session_state.active_question
-    st.subheader(f"Chapter {chapter} - Question {q_idx + 1}")
+    chapter, question_index = st.session_state.active_question
+    st.subheader(f"Chapter {chapter} - Question {question_index + 1}")
 
-    render_question(chapter, q_idx)
+    render_question(chapter, question_index)
 
     if teacher_mode:
-        render_question_eval(chapter, q_idx)
-        render_evaluator_feedback(chapter, q_idx)
+        render_question_eval(chapter, question_index)
+        render_evaluator_feedback(chapter, question_index)
 
     # --- Interaction Logic ---
 
-    chat_dict = assessment_server.get_chat(chapter, q_idx)
+    chat_dict = assessment_server.get_chat(chapter, question_index)
 
     def reset_response_selection():
         st.session_state.response_selection = None
@@ -242,10 +244,10 @@ else:
     def get_user_response_type() -> (
         Optional[Literal["Answer", "Ask for clarification"]]
     ):
-        q_status = assessment_server.get_question_status(chapter, q_idx)
+        q_status = assessment_server.get_question_status(chapter, question_index)
 
-        rem_attempts = assessment_server.remaining_attempts(chapter, q_idx)
-        rem_clari = assessment_server.remaining_clarifications(chapter, q_idx)
+        rem_attempts = assessment_server.remaining_attempts(chapter, question_index)
+        rem_clari = assessment_server.remaining_clarifications(chapter, question_index)
 
         answer_label = (
             f"Answer ({rem_attempts}/{assessment_server.max_answer_attempts})"
@@ -256,11 +258,11 @@ else:
             raw = st.pills(
                 "Response type",
                 [answer_label, clarify_label],
-                key=f"pills_{chapter}_{q_idx}",
+                key=f"pills_{chapter}_{question_index}",
             )
         elif q_status == "no_clarifications":
             raw = st.pills(
-                "Response type", [answer_label], key=f"pills_{chapter}_{q_idx}"
+                "Response type", [answer_label], key=f"pills_{chapter}_{question_index}"
             )
         elif q_status == "no_attempts":
             st.warning("Max attempts reached. Please move to the next question.")
@@ -275,18 +277,18 @@ else:
         return None
 
     if assessment_type == "ai":
-        if st.button("Get student answer", key=f"ai_btn_{chapter}_{q_idx}"):
+        if st.button("Get student answer", key=f"ai_btn_{chapter}_{question_index}"):
             with st.spinner("Student is thinking..."):
                 chat_dict, decision = handle_lm_student_response(
-                    chat_dict, assessment_server, chapter, q_idx
+                    chat_dict, assessment_server, chapter, question_index
                 )
                 proctor_res, chat_dict = handle_proctor_response(
-                    chat_dict, assessment_server, chapter, q_idx
+                    chat_dict, assessment_server, chapter, question_index
                 )
 
                 eval_type = "answer" if decision == "Answer" else "clarify"
                 chat_dict, evaluation = handle_evaluator_response(
-                    chat_dict, assessment_server, eval_type
+                    chat_dict, eval_type
                 )
 
                 if "evaluator_scores" not in st.session_state:
@@ -298,7 +300,7 @@ else:
         if prompt := st.chat_input(
             "Your response...",
             disabled=not user_response_type,
-            key=f"input_{chapter}_{q_idx}",
+            key=f"input_{chapter}_{question_index}",
         ):
             full_prompt = f"({user_response_type}) {prompt}"
 
@@ -309,19 +311,19 @@ else:
 
             # Eagerly display status message
             chat_dict, status = handle_proctor_preparation(
-                chat_dict, assessment_server, user_response_type, chapter, q_idx
+                chat_dict, assessment_server, user_response_type, chapter, question_index
             )
             with st.chat_message("assistant"):
                 st.markdown(status)
 
             with st.spinner("Proctor is responding..."):
                 proctor_res, chat_dict = handle_proctor_response(
-                    chat_dict, assessment_server, chapter, q_idx
+                    chat_dict, assessment_server, chapter, question_index
                 )
 
                 eval_type = "answer" if user_response_type == "Answer" else "clarify"
                 chat_dict, evaluation = handle_evaluator_response(
-                    chat_dict, assessment_server, eval_type
+                    chat_dict, eval_type
                 )
 
                 if "evaluator_scores" not in st.session_state:
@@ -330,15 +332,15 @@ else:
             st.rerun()
 
     # Next Question button logic
-    def get_next_indices(ch, q_i):
-        chapter_data = assessment_server.get_chapter_data(ch)
-        if q_i + 1 < len(chapter_data["questions"]):
-            return (ch, q_i + 1)
-        if ch + 1 <= assessment_server.max_chapter:
-            return (ch + 1, 0)
+    def get_next_indices(chapter, question_index):
+        chapter_data = assessment_server.get_chapter_data(chapter)
+        if question_index + 1 < len(chapter_data["questions"]):
+            return (chapter, question_index + 1)
+        if chapter + 1 <= assessment_server.max_chapter:
+            return (chapter + 1, 0)
         return "end_test"
 
-    next_indices = get_next_indices(chapter, q_idx)
+    next_indices = get_next_indices(chapter, question_index)
     if next_indices != "end_test":
         if st.button("Next Question ➡️", use_container_width=True):
             st.session_state.active_question = next_indices

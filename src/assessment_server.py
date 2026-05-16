@@ -1,6 +1,8 @@
 import json
 from typing import Literal, Optional
-from src.models import QuestionGrade
+from src.models import QuestionGrade, QuestionAttempt
+from src.db import DataStore
+from outlines.inputs import Chat
 
 """
 Question database management
@@ -20,9 +22,10 @@ before the assessment will automatically progress to the next question.
 
 
 class AssessmentServer:
-    def __init__(self, json_path: str = JSON_PATH) -> None:
+    def __init__(self, db: DataStore, json_path: str = JSON_PATH) -> None:
         self.json_path = json_path
         self.data = self.load_data()
+        self.db = db
 
         self.max_chapter = max(
             int(chapter_data["chapter"]) for chapter_data in self.data
@@ -31,40 +34,54 @@ class AssessmentServer:
         self.max_clarifications = 5
         self.max_answer_attempts = 5
 
-        # attempts: dict[(chapter, q_idx), int]
+        # attempts: dict[(chapter, question_index), int]
         self.num_clarifications: dict[tuple[int, int], int] = {}
         self.num_answer_attempts: dict[tuple[int, int], int] = {}
 
-        # chats: dict[(chapter, q_idx), chat_dict]
-        self.chats: dict[tuple[int, int], dict[str, "Chat"]] = {}
-        # question_evals: dict[(chapter, q_idx), QuestionGrade]
+        # chats: dict[(chapter, question_index), chat_dict]
+        self.chats: dict[tuple[int, int], dict[str, Chat]] = {}
+        # question_evals: dict[(chapter, question_index), QuestionGrade]
         self.question_evals: dict[tuple[int, int], QuestionGrade] = {}
 
-    def get_chat(self, chapter: int, q_idx: int) -> Optional[dict[str, "Chat"]]:
-        return self.chats.get((chapter, q_idx))
+    def _get_attempt(self, chapter: int, question_index: int) -> QuestionAttempt:
+        """Helper to get or init a question attempt"""
+        chapter_id, question_id = str(chapter), str(question_index)
+        if chapter_id not in self.db.assessment.progress:
+            self.db.assessment.progress[chapter_id] = {}
+        if question_id not in self.db.assessment.progress[chapter_id]:
+            self.db.assessment.progress[chapter_id][question_id] = QuestionAttempt()
+        return self.db.assessment.progress[chapter_id][question_id]
 
-    def set_chat(self, chapter: int, q_idx: int, chat_dict: dict[str, "Chat"]) -> None:
-        self.chats[(chapter, q_idx)] = chat_dict
+    def get_chat(self, chapter: int, question_index: int) -> Optional[dict[str, Chat]]:
+        attempt = self._get_attempt(chapter, question_index)
+        if not attempt.history:
+            return None
+        
+        return {}
+
+    def set_chat(self, chapter: int, question_index: int, chat_dict: dict[str, Chat]) -> None:
+        self.chats[(chapter, question_index)] = chat_dict
 
     def add_question_grade(
-        self, eval: "QuestionGrade", chapter: int, q_idx: int
+        self, eval: "QuestionGrade", chapter: int, question_index: int
     ) -> None:
-        self.question_evals[(chapter, q_idx)] = eval
+        self.question_evals[(chapter, question_index)] = eval
 
-    def get_question_status_icon(self, chapter: int, q_idx: int) -> str:
+    def get_question_status_icon(self, chapter: int, question_index: int) -> str:
         """
         Return icon based on proctor's judgment:
-        - ✅ if satisfied (correct and thorough)
+        - ✅ if answered fully and graded
         - ❓ if follow-up needed
         - "" if unanswered
         """
-        eval = self.question_evals.get((chapter, q_idx))
-        if not eval:
-            return ""
-
-        if eval.answer_correct and eval.thoroughness >= 4:
+        eval = self.question_evals.get((chapter, question_index))
+        if eval:
             return "✅"
-        return "❓"
+        answer_attempts = self.num_answer_attempts.get((chapter, question_index), 0)
+        if answer_attempts >= 1:
+            return "❓"
+        return ""
+        
 
     def get_chapter_data(
         self, chapter_index: int
@@ -85,36 +102,36 @@ class AssessmentServer:
     def evaluate_remaining_questions(self, grade_callback) -> None:
         """
         Iterate through all questions that have chat history but no grade.
-        Call grade_callback(chat_dict, chapter, q_idx) for each.
+        Call grade_callback(chat_dict, chapter, question_index) for each.
         """
-        for (chapter, q_idx), chat_dict in self.chats.items():
-            if (chapter, q_idx) not in self.question_evals:
+        for (chapter, question_index), chat_dict in self.chats.items():
+            if (chapter, question_index) not in self.question_evals:
                 # only grade if student has spoken
                 if len(chat_dict["main_chat"].messages) > 3: # greeting + question + status > 3
-                     grade_callback(chat_dict, chapter, q_idx)
+                     grade_callback(chat_dict, chapter, question_index)
 
     def load_data(self) -> list[dict[str, str | list[dict[str, str]]]]:
         with open(self.json_path) as f:
             data = json.load(f)
         return data
 
-    def increment_clarifications(self, chapter: int, q_idx: int):
-        key = (chapter, q_idx)
+    def increment_clarifications(self, chapter: int, question_index: int):
+        key = (chapter, question_index)
         self.num_clarifications[key] = self.num_clarifications.get(key, 0) + 1
 
-    def increment_attempts(self, chapter: int, q_idx: int):
-        key = (chapter, q_idx)
+    def increment_attempts(self, chapter: int, question_index: int):
+        key = (chapter, question_index)
         self.num_answer_attempts[key] = self.num_answer_attempts.get(key, 0) + 1
 
-    def remaining_clarifications(self, chapter: int, q_idx: int) -> int:
-        return self.max_clarifications - self.num_clarifications.get((chapter, q_idx), 0)
+    def remaining_clarifications(self, chapter: int, question_index: int) -> int:
+        return self.max_clarifications - self.num_clarifications.get((chapter, question_index), 0)
 
-    def remaining_attempts(self, chapter: int, q_idx: int) -> int:
-        return self.max_answer_attempts - self.num_answer_attempts.get((chapter, q_idx), 0)
+    def remaining_attempts(self, chapter: int, question_index: int) -> int:
+        return self.max_answer_attempts - self.num_answer_attempts.get((chapter, question_index), 0)
 
-    def get_attempt_and_clarification_message(self, chapter: int, q_idx: int) -> str:
-        rem_attempts = self.remaining_attempts(chapter, q_idx)
-        rem_clarifications = self.remaining_clarifications(chapter, q_idx)
+    def get_attempt_and_clarification_message(self, chapter: int, question_index: int) -> str:
+        rem_attempts = self.remaining_attempts(chapter, question_index)
+        rem_clarifications = self.remaining_clarifications(chapter, question_index)
         if rem_attempts <= 0:
             return "Max answer attempts reached for this question!"
 
@@ -124,11 +141,11 @@ class AssessmentServer:
         return f"There are {rem_clarifications} clarification questions and {rem_attempts} answer attempts remaining for this question."
 
     def get_question_status(
-        self, chapter: int, q_idx: int
+        self, chapter: int, question_index: int
     ) -> Literal["attempts_and_clarifications", "no_clarifications", "no_attempts"]:
-        if self.remaining_attempts(chapter, q_idx) <= 0:
+        if self.remaining_attempts(chapter, question_index) <= 0:
             return "no_attempts"
-        if self.remaining_clarifications(chapter, q_idx) <= 0:
+        if self.remaining_clarifications(chapter, question_index) <= 0:
             return "no_clarifications"
         return "attempts_and_clarifications"
 

@@ -241,7 +241,7 @@ def handle_question(
     chat_dict: dict[str, Chat],
     assessment_server: AssessmentServer,
     chapter: int,
-    q_idx: int,
+    question_index: int,
 ) -> dict[str, Chat]:
     """
     Writes question data and base instructions to chat as system prompt
@@ -249,7 +249,7 @@ def handle_question(
     Return updated chat.
     """
     # check if we already have a chat for this question
-    existing_chat = assessment_server.get_chat(chapter, q_idx)
+    existing_chat = assessment_server.get_chat(chapter, question_index)
     if existing_chat:
         return existing_chat
 
@@ -257,7 +257,7 @@ def handle_question(
     base_prompt = get_system_prompt(role="proctor", prompt_type="initial")
     chat_dict = add_system_message(chat_dict, chat="main_chat", prompt=base_prompt)
 
-    question_data = assessment_server.get_question_data(chapter, q_idx)
+    question_data = assessment_server.get_question_data(chapter, question_index)
     question_json = json.dumps(question_data, indent=2)
     question_message = assessment_server.format_question(**question_data)
 
@@ -274,7 +274,7 @@ def handle_question(
     chat_dict = update_all_chats(chat_dict, role="proctor", prompt=question_message)
     
     # save the chat to the server
-    assessment_server.set_chat(chapter, q_idx, chat_dict)
+    assessment_server.set_chat(chapter, question_index, chat_dict)
 
     return chat_dict
 
@@ -294,22 +294,22 @@ def handle_proctor_preparation(
     assessment_server: AssessmentServer,
     user_response_type: Literal["Answer", "Ask for clarification"],
     chapter: int,
-    q_idx: int,
+    question_index: int,
 ) -> tuple[dict[str, Chat], str]:
     """
     Increments counts, adds status message and system prompt to chat.
     Returns updated chat_dict and the status message.
     """
     if user_response_type == "Answer":
-        assessment_server.increment_attempts(chapter, q_idx)
+        assessment_server.increment_attempts(chapter, question_index)
         system_prompt = get_system_prompt(role="proctor", prompt_type="answer")
     elif user_response_type == "Ask for clarification":
-        assessment_server.increment_clarifications(chapter, q_idx)
+        assessment_server.increment_clarifications(chapter, question_index)
         system_prompt = get_system_prompt(role="proctor", prompt_type="clarify")
     else:
         raise ValueError(f"Unknown user response type {user_response_type}")
 
-    status_message = assessment_server.get_attempt_and_clarification_message(chapter, q_idx)
+    status_message = assessment_server.get_attempt_and_clarification_message(chapter, question_index)
     chat_dict = update_all_chats(chat_dict, role="proctor", prompt=status_message)
     print(status_message)
 
@@ -323,7 +323,7 @@ def handle_lm_student_response(
     chat_dict: dict[str, Chat],
     assessment_server: AssessmentServer,
     chapter: int,
-    q_idx: int,
+    question_index: int,
 ) -> tuple[dict[str, Chat], Literal["Answer", "Ask for clarification"]]:
     """
     Prompt LLM student to respond to question.
@@ -343,7 +343,7 @@ def handle_lm_student_response(
     
     chat_dict = handle_student_message(chat_dict, answer.message)
     chat_dict, _ = handle_proctor_preparation(
-        chat_dict, assessment_server, answer.decision, chapter, q_idx
+        chat_dict, assessment_server, answer.decision, chapter, question_index
     )
 
     return chat_dict, answer.decision
@@ -400,7 +400,7 @@ def handle_question_grading(
     chat_dict: dict[str, Chat],
     assessment_server: AssessmentServer,
     chapter: int,
-    q_idx: int,
+    question_index: int,
 ) -> tuple[dict[str, Chat], QuestionGrade]:
     """
     Prompt the grader to evaluate the student's performance on the current question.
@@ -411,7 +411,7 @@ def handle_question_grading(
 
     response_json = model(chat_dict["grader_chat"], QuestionGrade)
     evaluation = QuestionGrade.model_validate_json(response_json)
-    assessment_server.add_question_grade(evaluation, chapter, q_idx)
+    assessment_server.add_question_grade(evaluation, chapter, question_index)
     print(f"Question eval: {response_json}")
 
     return chat_dict, evaluation
@@ -421,11 +421,11 @@ def handle_proctor_response(
     chat_dict: dict[str, Chat],
     assessment_server: AssessmentServer,
     chapter: Optional[int] = None,
-    q_idx: Optional[int] = None,
+    question_index: Optional[int] = None,
 ) -> tuple[Response, dict[str, Chat]]:
     """
     Prompt model to respond to last student message.
-    If chapter and q_idx are provided, handles question-specific logic (grading).
+    If chapter and question_index are provided, handles question-specific logic (grading).
     Otherwise, handles generic proctor interaction (intro phase).
     """
 
@@ -441,8 +441,8 @@ def handle_proctor_response(
     chat_dict = add_system_message(chat_dict, chat="main_chat", prompt=system_message)
 
     # model decided that question is complete (only if we are in a question)
-    if response.decision == "question_complete" and chapter is not None and q_idx is not None:
-        chat_dict, _ = handle_question_grading(chat_dict, assessment_server, chapter, q_idx)
+    if response.decision == "question_complete" and chapter is not None and question_index is not None:
+        chat_dict, _ = handle_question_grading(chat_dict, assessment_server, chapter, question_index)
 
     return response, chat_dict
 
@@ -457,7 +457,7 @@ def handle_chapter_summary(
     """
     chapter_data = assessment_server.get_chapter_data(chapter_index)
     
-    # evals are now keyed by (chapter, q_idx)
+    # evals are now keyed by (chapter, question_index)
     evals = [
         v for k, v in assessment_server.question_evals.items() if k[0] == chapter_index
     ]
