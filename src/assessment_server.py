@@ -1,8 +1,7 @@
 import random
 import string
 import json
-from typing import Optional, List, Tuple, Dict, Union
-from typing_extensions import Literal
+from typing import Optional, List, Literal
 from sqlmodel import Session, create_engine, select, and_, SQLModel
 from outlines.inputs import Chat
 from src.models import (
@@ -46,7 +45,7 @@ class AssessmentServer:
         chars = string.ascii_uppercase + string.digits
         return "-".join(["".join(random.choices(chars, k=2)) for _ in range(3)])
 
-    def create_assessment(self) -> Tuple[int, str]:
+    def create_assessment(self) -> tuple[int, str]:
         """Add a blank Assessment and return (id, code)."""
         with Session(self.engine) as session:
             code = self._generate_code()
@@ -127,7 +126,7 @@ class AssessmentServer:
     # --- Chat Persistence (Lazy Reconstruction) ---
 
     def record_message(
-        self, attempt_id: Optional[int], role: Literal["user", "assistant"], content: str
+        self, attempt_id: int | None, role: Literal["user", "assistant"], content: str
     ):
         """Saves a message to the unified chat log."""
         if attempt_id is None:
@@ -194,7 +193,7 @@ class AssessmentServer:
     # --- Grade & Summary Persistence ---
 
     def save_llm_result(
-        self, target_id: int, result: Dict, type: Literal["question", "chapter", "test"]
+        self, target_id: int, result: dict, type: Literal["question", "chapter", "test"]
     ):
         """Saves JSON blob results (QuestionGrade, ChapterSummary, TestSummary)."""
         with Session(self.engine) as session:
@@ -300,7 +299,7 @@ class AssessmentServer:
 
     def get_next_incomplete_question(
         self, assessment_id: int, current_chapter_id: int, current_question_idx: int
-    ) -> Optional[Tuple[int, int]]:
+    ) -> Optional[tuple[int, int]]:
         """
         Find the next question (chapter_id, question_idx) in sequence that has not been graded.
         """

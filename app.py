@@ -21,8 +21,7 @@ from src.chat import (
 )
 from outlines.inputs import Chat
 from sqlmodel import Session, select, and_
-from typing import Optional
-from typing_extensions import Literal
+from typing import Optional, Literal
 
 from src.models import (
     ChapterSummary,
@@ -169,18 +168,17 @@ def render_greeting():
         del st.session_state["pending_intro_decision"]
         st.rerun()
 
-    elif "pending_intro_decision" not in st.session_state:
-        prompt = st.chat_input("Ask about the exam setup...", key="intro_input")
-        if prompt:
-            intro_chat.add_user_message(prompt)
-            with st.chat_message("user"):
-                st.markdown(prompt)
+    # Generic interaction (not persisted in this demo for intro)
+    elif prompt := st.chat_input("Ask about the exam setup...", key="intro_input"):
+        intro_chat.add_user_message(prompt)
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-            with st.spinner("Proctor is thinking..."):
-                decision = handle_proctor_response_decision(server)
-                st.session_state["pending_intro_decision"] = decision
+        with st.spinner("Proctor is thinking..."):
+            decision = handle_proctor_response_decision(server)
+            st.session_state["pending_intro_decision"] = decision
 
-            st.rerun()
+        st.rerun()
 
     st.divider()
     if st.button("Start Assessment", type="primary"):
@@ -467,12 +465,11 @@ else:
                     st.rerun()
             else:
                 user_response_type = get_user_response_type(server, attempt)
-                prompt = st.chat_input(
+                if prompt := st.chat_input(
                     "Your response...",
                     disabled=not user_response_type,
                     key=f"input_{attempt.id}",
-                )
-                if prompt:
+                ):
                     assert user_response_type is not None
                     full_prompt = f"({user_response_type}) {prompt}"
 

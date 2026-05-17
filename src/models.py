@@ -4,8 +4,7 @@ and `sqlmodel` types for database management.
 """
 
 from pydantic import BaseModel
-from typing import List, Optional, Dict
-from typing_extensions import Literal
+from typing import Literal, List, Optional
 from sqlmodel import SQLModel, Field, Relationship, Column, JSON
 from datetime import datetime, timezone
 from enum import Enum
@@ -23,16 +22,16 @@ Structured response types
 class TestSummary(BaseModel):
     overall_score: Literal[1, 2, 3, 4, 5]
     summary: str
-    strengths: List[str]
-    areas_for_improvement: List[str]
+    strengths: list[str]
+    areas_for_improvement: list[str]
 
 
 class ChapterSummary(BaseModel):
     chapter: int
     overall_score: Literal[1, 2, 3, 4, 5]
     summary: str
-    strengths: List[str]
-    weaknesses: List[str]
+    strengths: list[str]
+    weaknesses: list[str]
 
 
 class QuestionGrade(BaseModel):
@@ -102,7 +101,7 @@ class Assessment(SQLModel, table=True):
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Store TestSummary as JSON
-    test_summary: Optional[Dict] = Field(default=None, sa_column=Column(JSON))
+    test_summary: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
     attempts: List["QuestionAttempt"] = Relationship(back_populates="assessment")
     chapter_attempts: List["ChapterAttempt"] = Relationship(back_populates="assessment")
@@ -120,7 +119,7 @@ class ChapterAttempt(SQLModel, table=True):
     chapter_id: int = Field(foreign_key="chapter.id")
 
     # Store ChapterSummary as JSON
-    summary_data: Optional[Dict] = Field(default=None, sa_column=Column(JSON))
+    summary_data: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
     assessment: Assessment = Relationship(back_populates="chapter_attempts")
     chapter: Chapter = Relationship(back_populates="attempts")
@@ -139,7 +138,7 @@ class QuestionAttempt(SQLModel, table=True):
     num_answer_attempts: int = Field(default=0)
 
     # Store QuestionGrade as JSON
-    grade_data: Optional[Dict] = Field(default=None, sa_column=Column(JSON))
+    grade_data: Optional[dict] = Field(default=None, sa_column=Column(JSON))
 
     assessment: Assessment = Relationship(back_populates="attempts")
     question: Question = Relationship(back_populates="attempts")

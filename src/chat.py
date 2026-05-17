@@ -9,8 +9,7 @@ import json
 import outlines
 from outlines.inputs import Chat
 import os
-from typing import List, Optional, Union
-from typing_extensions import Literal
+from typing import Literal, List
 import logging
 from src.assessment_server import AssessmentServer
 from src.models import (
@@ -170,7 +169,7 @@ def handle_question_grading(
 
 
 def handle_proctor_response_decision(
-    server: AssessmentServer, attempt_id: Optional[int] = None
+    server: AssessmentServer, attempt_id: int | None = None
 ) -> Response:
     """
     Prompt model to analyze student response and make a decision.
@@ -185,7 +184,7 @@ def handle_proctor_response_decision(
 
 
 def handle_proctor_student_response(
-    server: AssessmentServer, attempt_id: Optional[int], decision: Response
+    server: AssessmentServer, attempt_id: int | None, decision: Response
 ):
     """
     Prompt model to generate a conversational response based on decision.
@@ -250,7 +249,7 @@ def handle_chapter_summary(
 def handle_test_summary(
     server: AssessmentServer,
     assessment_id: int,
-    chapter_summaries: List[ChapterSummary],
+    chapter_summaries: list[ChapterSummary],
 ) -> TestSummary:
     """
     Summarize overall test performance.
