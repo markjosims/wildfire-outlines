@@ -5,9 +5,9 @@ Stateless version using AssessmentServer.
 
 import streamlit as st
 import os
+import time
 from src.assessment_server import AssessmentServer
 from src.chat import (
-    handle_intro_chat,
     handle_question,
     handle_student_message,
     handle_lm_student_response,
@@ -17,6 +17,7 @@ from src.chat import (
     handle_question_grading,
     handle_chapter_summary,
     handle_test_summary,
+    handle_intro_stream,
     get_system_prompt,
 )
 from outlines.inputs import Chat
@@ -69,20 +70,32 @@ if st.session_state.exam_code:
 
 
 def render_splash():
-    st.subheader("Get Started")
+    st.subheader("Register your exam code")
     col1, col2 = st.columns(2)
 
     with col1:
         st.write("### New Assessment")
-        if st.button("Generate New Exam Code", type="primary", use_container_width=True):
+        if st.button(
+            "Generate New Exam Code", type="primary", use_container_width=True
+        ):
             id, code = server.create_assessment()
             st.session_state.assessment_id = id
             st.session_state.exam_code = code
             st.rerun()
+        st.caption(
+            "Your exam progress is tied to this unique code. "
+            + "If your connection is interrupted you may enter this "
+            + "code again to restore your progress. We recommend you "
+            + "write down this code or save it to your computer."
+        )
 
     with col2:
         st.write("### Resume Assessment")
         code_input = st.text_input("Enter your Exam Code (e.g., AB-12-CD)")
+        st.caption(
+            "If you are resuming progress from an interrupted test attempt, "
+            + "you may enter your exam code here."
+        )
         if st.button("Resume", use_container_width=True):
             if code_input:
                 assessment = server.get_assessment_by_code(code_input.upper())
@@ -144,39 +157,58 @@ def render_greeting():
     """
     st.subheader("Welcome to the Wildfire Assessment")
 
-    # Ephemeral intro chat
-    if "intro_chat" not in st.session_state:
-        with st.spinner("Proctor is joining..."):
-            st.session_state.intro_chat = handle_intro_chat()
+    prompt = get_system_prompt("proctor", "greeting")
+    chat = server.load_chat_for_llm(
+        st.session_state.assessment_id, prompt, role="proctor"
+    )
 
-    intro_chat: Chat = st.session_state.intro_chat
+    # If new assessment (no messages), initialize with static greeting
+    if len(chat.messages) <= 1:
+        with open("prompts/proctor/greeting.txt", "r") as f:
+            greeting_text = f.read()
 
-    # Print messages
-    for message in intro_chat.messages:
-        if message["role"] == "system":
-            continue
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+        server.record_message(
+            st.session_state.assessment_id, "assistant", greeting_text
+        )
 
-    if "pending_intro_decision" in st.session_state:
-        decision = st.session_state["pending_intro_decision"]
+        # Reload to include the message we just saved
+        chat = server.load_chat_for_llm(
+            st.session_state.assessment_id, prompt, role="proctor"
+        )
+
         with st.chat_message("assistant"):
-            full_response = st.write_stream(
-                handle_proctor_student_response(server, None, decision)
-            )
-            intro_chat.add_assistant_message(str(full_response))
-        del st.session_state["pending_intro_decision"]
-        st.rerun()
 
-    # Generic interaction (not persisted in this demo for intro)
-    elif prompt := st.chat_input("Ask about the exam setup...", key="intro_input"):
-        intro_chat.add_user_message(prompt)
+            def stream_text():
+                for word in greeting_text.split(" "):
+                    yield word + " "
+                    time.sleep(0.02)
+
+            st.write_stream(stream_text)
+    else:
+        # Print history
+        for message in chat.messages:
+            if message["role"] == "system":
+                continue
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+    # Generic interaction
+    if prompt_input := st.chat_input("Ask about the exam setup...", key="intro_input"):
+        server.record_message(st.session_state.assessment_id, "user", prompt_input)
+
+        # Reload chat to include user message before sending to LLM
+        chat = server.load_chat_for_llm(
+            st.session_state.assessment_id, prompt, role="proctor"
+        )
+
         with st.chat_message("user"):
-            st.markdown(prompt)
+            st.markdown(prompt_input)
 
-        with st.spinner("Proctor is thinking..."):
-            decision = handle_proctor_response_decision(server)
-            st.session_state["pending_intro_decision"] = decision
+        with st.chat_message("assistant"):
+            full_response = st.write_stream(handle_intro_stream(chat))
+            server.record_message(
+                st.session_state.assessment_id, "assistant", full_response
+            )
 
         st.rerun()
 
@@ -195,12 +227,14 @@ def render_question(attempt_id: int, question: Question, server: AssessmentServe
     st.divider()
 
     prompt = get_system_prompt("proctor", "base")
-    chat = server.load_chat_for_llm(attempt_id, prompt, role="proctor")
+    chat = server.load_chat_for_llm(
+        st.session_state.assessment_id, prompt, role="proctor", attempt_id=attempt_id
+    )
 
     # Initialize if needed
     if len(chat.messages) <= 1:
         with st.spinner("Loading question..."):
-            chat = handle_question(server, attempt_id)
+            chat = handle_question(server, st.session_state.assessment_id, attempt_id)
 
     # Print chat messages
     for message in chat.messages:
@@ -231,10 +265,12 @@ def render_question_eval(attempt_id: int):
 
 # --- Sidebar Navigation ---
 
+is_all_complete = server.check_all_complete(st.session_state.assessment_id)
+
 with st.sidebar:
     st.header("Navigation")
 
-    if st.button("Intro / Greeting"):
+    if st.button("Intro / Greeting", disabled=is_all_complete):
         st.session_state.active_question = None
         st.rerun()
 
@@ -246,7 +282,8 @@ with st.sidebar:
             with st.expander(
                 f"Chapter {chapter.id}: {chapter.title}",
                 expanded=bool(
-                    st.session_state.active_question
+                    not is_all_complete
+                    and st.session_state.active_question
                     and st.session_state.active_question[0] == chapter.id
                 ),
             ):
@@ -262,6 +299,7 @@ with st.sidebar:
                         label,
                         key=f"nav_{chapter.id}_{question_idx}",
                         use_container_width=True,
+                        disabled=is_all_complete,
                     ):
                         st.session_state.active_question = (chapter.id, question_idx)
                         st.rerun()
@@ -276,8 +314,10 @@ with st.sidebar:
         )
         st.checkbox(label="Teacher mode", key="teacher_mode")
 
-    if not st.session_state.get("test_ended") and st.button(
-        "End test & summarize", type="primary"
+    if (
+        not is_all_complete
+        and not st.session_state.get("test_ended")
+        and st.button("End test & summarize", type="primary")
     ):
         st.session_state.test_ended = True
         st.rerun()
@@ -381,6 +421,23 @@ if st.session_state.get("test_ended"):
         st.rerun()
     st.stop()
 
+if is_all_complete:
+    st.info("You have answered all questions in this assessment!")
+    st.write(
+        "Please click the button below to finalize your assessment and view your summary."
+    )
+    _, col, _ = st.columns([1, 2, 1])
+    with col:
+        if st.button(
+            "Complete Test & Summarize",
+            type="primary",
+            use_container_width=True,
+            key="final_completion_btn",
+        ):
+            st.session_state.test_ended = True
+            st.rerun()
+    st.stop()
+
 if st.session_state.active_question is None:
     render_greeting()
 else:
@@ -450,14 +507,20 @@ else:
         # flush to the frontend BEFORE the blocking st.write_stream call.
         with input_container:
             if is_complete:
-                st.badge(label="Question complete", icon=":material/check:", color="gray")
+                st.badge(
+                    label="Question complete", icon=":material/check:", color="gray"
+                )
             elif st.session_state.get("assessment_type", None) == "ai":
                 if st.button("Get student answer", key=f"ai_btn_{attempt.id}"):
                     with st.spinner("Student is thinking..."):
-                        handle_lm_student_response(server, attempt.id)
+                        handle_lm_student_response(
+                            server, st.session_state.assessment_id, attempt.id
+                        )
 
                     with st.spinner("Proctor is thinking..."):
-                        decision = handle_proctor_response_decision(server, attempt.id)
+                        decision = handle_proctor_response_decision(
+                            server, st.session_state.assessment_id, attempt.id
+                        )
                         st.session_state[pending_key] = decision
                         if decision.decision == "question_complete":
                             st.session_state[optimistic_complete_key] = True
@@ -474,7 +537,9 @@ else:
                     full_prompt = f"({user_response_type}) {prompt}"
 
                     # Persist Student Message
-                    handle_student_message(server, attempt.id, full_prompt)
+                    handle_student_message(
+                        server, st.session_state.assessment_id, attempt.id, full_prompt
+                    )
                     handle_proctor_preparation(server, attempt.id, user_response_type)
 
                     with chat_container:
@@ -482,7 +547,9 @@ else:
                             st.markdown(full_prompt)
 
                     with st.spinner("Proctor is thinking..."):
-                        decision = handle_proctor_response_decision(server, attempt.id)
+                        decision = handle_proctor_response_decision(
+                            server, st.session_state.assessment_id, attempt.id
+                        )
                         st.session_state[pending_key] = decision
                         if decision.decision == "question_complete":
                             st.session_state[optimistic_complete_key] = True
@@ -495,10 +562,17 @@ else:
             with chat_container:
                 with st.chat_message("assistant"):
                     full_response = st.write_stream(
-                        handle_proctor_student_response(server, attempt.id, decision)
+                        handle_proctor_student_response(
+                            server, st.session_state.assessment_id, attempt.id, decision
+                        )
                     )
                     # Save to DB now that stream is done
-                    server.record_message(attempt.id, "assistant", str(full_response))
+                    server.record_message(
+                        st.session_state.assessment_id,
+                        "assistant",
+                        str(full_response),
+                        attempt_id=attempt.id,
+                    )
 
             if decision.decision == "question_complete":
                 handle_question_grading(server, attempt.id)

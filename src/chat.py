@@ -77,6 +77,7 @@ def get_system_prompt(
 
 def handle_question(
     server: AssessmentServer,
+    assessment_id: int,
     attempt_id: int,
 ) -> Chat:
     """
@@ -84,17 +85,54 @@ def handle_question(
     Injection of question data is handled by server.load_chat_for_llm.
     """
     prompt = get_system_prompt("proctor", "base")
-    chat = server.load_chat_for_llm(attempt_id, prompt, role="proctor")
+    chat = server.load_chat_for_llm(
+        assessment_id, prompt, role="proctor", attempt_id=attempt_id
+    )
     return chat
+
+
+def handle_greeting() -> Chat:
+    """
+    Returns the initial greeting chat context.
+    """
+    prompt = get_system_prompt("proctor", "greeting")
+    chat = Chat()
+    chat.add_system_message(prompt)
+    return chat
+
+
+def handle_intro_conversation(chat: Chat) -> str:
+    """
+    Routes the intro chat to the LLM and returns the response.
+    """
+    response = model(chat, Greeting)  # type: ignore
+    greeting: Greeting = Greeting.model_validate_json(response)
+    return greeting.message
+
+
+def handle_intro_stream(chat: Chat):
+    """
+    Stream intro conversation response.
+    """
+    stream = client.chat.completions.create(
+        model=openai_model,
+        messages=chat.messages,  # type: ignore
+        stream=True,
+    )
+    for chunk in stream:
+        content = chunk.choices[0].delta.content
+        if content:
+            yield content
 
 
 def handle_student_message(
     server: AssessmentServer,
+    assessment_id: int,
     attempt_id: int,
     content: str,
 ):
     """Saves student message as 'user'."""
-    server.record_message(attempt_id, "user", content)
+    server.record_message(assessment_id, "user", content, attempt_id=attempt_id)
 
 
 def handle_proctor_preparation(
@@ -119,18 +157,21 @@ def handle_proctor_preparation(
 
 def handle_lm_student_response(
     server: AssessmentServer,
+    assessment_id: int,
     attempt_id: int,
 ) -> Literal["Answer", "Ask for clarification"]:
     """
     Prompt LLM student to respond to question.
     """
     student_prompt = get_system_prompt("student", "question")
-    chat = server.load_chat_for_llm(attempt_id, student_prompt, role="student")
+    chat = server.load_chat_for_llm(
+        assessment_id, student_prompt, role="student", attempt_id=attempt_id
+    )
 
     response: str = model(chat, StudentAnswer)  # type: ignore
     answer: StudentAnswer = StudentAnswer.model_validate_json(response)
 
-    handle_student_message(server, attempt_id, answer.message)
+    handle_student_message(server, assessment_id, attempt_id, answer.message)
     handle_proctor_preparation(server, attempt_id, answer.decision)
 
     return answer.decision
@@ -169,13 +210,17 @@ def handle_question_grading(
 
 
 def handle_proctor_response_decision(
-    server: AssessmentServer, attempt_id: int | None = None
+    server: AssessmentServer,
+    assessment_id: int,
+    attempt_id: int | None = None,
 ) -> Response:
     """
     Prompt model to analyze student response and make a decision.
     """
     prompt = get_system_prompt("proctor", "decide-answer-response")
-    chat = server.load_chat_for_llm(attempt_id, prompt, role="proctor")
+    chat = server.load_chat_for_llm(
+        assessment_id, prompt, role="proctor", attempt_id=attempt_id
+    )
 
     response = model(chat, Response)
     res_obj: Response = Response.model_validate_json(response)
@@ -184,7 +229,10 @@ def handle_proctor_response_decision(
 
 
 def handle_proctor_student_response(
-    server: AssessmentServer, attempt_id: int | None, decision: Response
+    server: AssessmentServer,
+    assessment_id: int,
+    attempt_id: int | None,
+    decision: Response,
 ):
     """
     Prompt model to generate a conversational response based on decision.
@@ -198,7 +246,9 @@ def handle_proctor_student_response(
 
     # 2. Load chat history with base proctor instructions
     # We use the instruction as the system prompt to guide the response
-    chat = server.load_chat_for_llm(attempt_id, instruction, role="proctor")
+    chat = server.load_chat_for_llm(
+        assessment_id, instruction, role="proctor", attempt_id=attempt_id
+    )
 
     # 3. Stream from OpenAI
     stream = client.chat.completions.create(

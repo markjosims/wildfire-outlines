@@ -126,64 +126,86 @@ class AssessmentServer:
     # --- Chat Persistence (Lazy Reconstruction) ---
 
     def record_message(
-        self, attempt_id: int | None, role: Literal["user", "assistant"], content: str
+        self,
+        assessment_id: int,
+        role: Literal["user", "assistant"],
+        content: str,
+        attempt_id: Optional[int] = None,
     ):
         """Saves a message to the unified chat log."""
-        if attempt_id is None:
-            # For now, if no attempt_id, we don't persist (greeting logic)
-            return
-
         with Session(self.engine) as session:
-            msg = ChatMessage(attempt_id=attempt_id, role=role, content=content)
+            msg = ChatMessage(
+                assessment_id=assessment_id,
+                attempt_id=attempt_id,
+                role=role,
+                content=content,
+            )
             session.add(msg)
             session.commit()
 
     def load_chat_for_llm(
         self,
-        attempt_id: int,
+        assessment_id: int,
         system_prompt: str,
         role: Literal["proctor", "student", "grader"],
+        attempt_id: Optional[int] = None,
     ) -> Chat:
         """
         Lazily reconstructs a Chat object from DB messages.
         Injects question data dynamically based on the target role.
         """
+        chat = Chat()
+        chat.add_system_message(system_prompt)
+
         with Session(self.engine) as session:
-            attempt = session.get(QuestionAttempt, attempt_id)
-            if not attempt:
-                chat = Chat()
-                chat.add_system_message(system_prompt)
-                return chat
+            if attempt_id:
+                attempt = session.get(QuestionAttempt, attempt_id)
+                if not attempt:
+                    return chat
 
-            question = attempt.question
+                question = attempt.question
 
-            chat = Chat()
-            chat.add_system_message(system_prompt)
+                # Inject question data
+                q_data = {
+                    "concept_description": question.concept_description,
+                    "question_format": question.question_format,
+                    "question_text": question.question_text,
+                }
+                if role in ["proctor", "grader"]:
+                    q_data["answer_key"] = question.answer
+                    q_data["explanation_ground_truth"] = question.explanation_text
 
-            # Inject question data
-            q_data = {
-                "concept_description": question.concept_description,
-                "question_format": question.question_format,
-                "question_text": question.question_text,
-            }
-            if role in ["proctor", "grader"]:
-                q_data["answer_key"] = question.answer
-                q_data["explanation_ground_truth"] = question.explanation_text
-
-            chat.add_system_message(
-                f"Current Question Context:\n{json.dumps(q_data, indent=2)}"
-            )
-
-            # Proctor also gets the formatted question text as a system message to know what was shown
-            if role == "proctor":
                 chat.add_system_message(
-                    f"The student was shown the following:\n{self.format_question(question)}"
+                    f"Current Question Context:\n{json.dumps(q_data, indent=2)}"
                 )
 
-            # Sort by timestamp, then ID for stable ordering
-            sorted_messages = sorted(attempt.chats, key=lambda c: (c.timestamp, c.id))
+                # Proctor also gets the formatted question text as a system message to know what was shown
+                if role == "proctor":
+                    chat.add_system_message(
+                        f"The student was shown the following:\n{self.format_question(question)}"
+                    )
 
-            for message in sorted_messages:
+                stmt = (
+                    select(ChatMessage)
+                    .where(ChatMessage.attempt_id == attempt_id)
+                    .order_by(ChatMessage.timestamp, ChatMessage.id)
+                )
+            else:
+                # Intro chat
+                stmt = (
+                    select(ChatMessage)
+                    .where(
+                        and_(
+                            ChatMessage.assessment_id == assessment_id,
+                            ChatMessage.attempt_id == None,
+                        )
+                    )
+                    .order_by(ChatMessage.timestamp, ChatMessage.id)
+                )
+
+            messages = session.exec(stmt).all()
+
+            for message in messages:
                 if message.role == "user":
                     chat.add_user_message(message.content)
                 elif message.role == "assistant":
@@ -322,3 +344,24 @@ class AssessmentServer:
                         return (chapter.id, idx)
 
             return None
+
+    def check_all_complete(self, assessment_id: int) -> bool:
+        """
+        Checks if all questions in the database have a graded attempt for this assessment.
+        """
+        with Session(self.engine) as session:
+            # Get total number of questions
+            total_questions = session.exec(select(Question)).all()
+            total_count = len(total_questions)
+
+            # Get count of graded attempts for this assessment
+            stmt = select(QuestionAttempt).where(
+                and_(
+                    QuestionAttempt.assessment_id == assessment_id,
+                    QuestionAttempt.grade_data.is_not(None),
+                )
+            )
+            graded_attempts = session.exec(stmt).all()
+            graded_count = len(graded_attempts)
+
+            return graded_count >= total_count

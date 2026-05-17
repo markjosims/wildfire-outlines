@@ -100,8 +100,8 @@ class Assessment(SQLModel, table=True):
     exam_code: str = Field(index=True, unique=True)
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    # Store TestSummary as JSON
-    test_summary: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    # Store TestSummary as JSON(none_as_null=True)
+    test_summary: Optional[dict] = Field(default=None, sa_column=Column(JSON(none_as_null=True)))
 
     attempts: List["QuestionAttempt"] = Relationship(back_populates="assessment")
     chapter_attempts: List["ChapterAttempt"] = Relationship(back_populates="assessment")
@@ -118,8 +118,8 @@ class ChapterAttempt(SQLModel, table=True):
     assessment_id: int = Field(foreign_key="assessment.id")
     chapter_id: int = Field(foreign_key="chapter.id")
 
-    # Store ChapterSummary as JSON
-    summary_data: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    # Store ChapterSummary as JSON(none_as_null=True)
+    summary_data: Optional[dict] = Field(default=None, sa_column=Column(JSON(none_as_null=True)))
 
     assessment: Assessment = Relationship(back_populates="chapter_attempts")
     chapter: Chapter = Relationship(back_populates="attempts")
@@ -137,8 +137,8 @@ class QuestionAttempt(SQLModel, table=True):
     num_clarifications: int = Field(default=0)
     num_answer_attempts: int = Field(default=0)
 
-    # Store QuestionGrade as JSON
-    grade_data: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    # Store QuestionGrade as JSON(none_as_null=True)
+    grade_data: Optional[dict] = Field(default=None, sa_column=Column(JSON(none_as_null=True)))
 
     assessment: Assessment = Relationship(back_populates="attempts")
     question: Question = Relationship(back_populates="attempts")

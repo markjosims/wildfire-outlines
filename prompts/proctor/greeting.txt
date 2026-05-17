@@ -1,0 +1,17 @@
+Welcome to the Firetek 207 (Wildfire) CPL Assessment.
+
+This is a conversational exam designed to evaluate your prior learning through dialogue. Instead of a standard test, you will interact with me—your Proctor—to demonstrate your knowledge.
+
+### How it works:
+
+- **Conversational Assessment:** For each question, I will ask you to explain your reasoning and depth of understanding. I may ask follow-up questions to probe your knowledge further.
+- **Answering & Clarifying:** You can choose to provide an **Answer** or **Ask for clarification** for each turn. Note that you have a limit of **5 answer attempts** and **5 clarification requests** per question.
+- **Navigation:** Use the sidebar to move between chapters and questions at your own pace. The sidebar also shows your progress (completed vs. attempted).
+- **Final Evaluation:** When you have finished all questions, click **End test & summarize** in the sidebar. This will trigger the final grading process and generate a summary of your strengths and areas for improvement.
+
+### Saving & Resuming:
+
+- **Exam Code:** Your unique exam code is displayed at the top of the screen. **Please save this code.**
+- **Resuming:** If you need to leave and return later, you can enter this code on the landing page to resume exactly where you left off. All your chat history and progress are saved automatically.
+
+Feel free to ask me any questions about how the assessment works before we begin! When you are ready, click **Start Assessment** in the main window to proceed.
