@@ -55,7 +55,7 @@ Explanation Up‑to‑date weather drives predictions of wind shifts, humidity, 
 
 Answer: Situation 9 – *Building fireline downhill with fire below;* switch to a flanking or upslope anchor, or withdraw to a safety zone.
 
-Explanation Down‑slope line construction above the fire invites rapid uphill runs that can overtake crews before they can climb out; redirecting tactics or retreating removes the chimney‑effect hazard. 
+Explanation Down‑slope line construction above the fire invites rapid uphill runs that can overtake crews before they can climb out; redirecting tactics or retreating removes the chimney‑effect hazard.
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -142,7 +142,7 @@ A. Thinner air at higher elevation cools the flames
 
 **Instructional explanation**  
  On a slope, flames and hot gases rise vertically while the ground angles upward, lifting the next layer of vegetation closer to that heat. Pre‑heating and ignition happen faster, so spread accelerates; the steeper the slope, the faster the run.  
- *Distractor rebuttals*   
+ *Distractor rebuttals*
  A – Cooler air would slow, not speed, burning.  
  C – Rolling embers move downslope and do not boost uphill spread.  
  D – Shade reduces heating; steep sunny slopes actually receive **more** radiation, not less.
@@ -190,7 +190,7 @@ A. Conduction
 
 **Instructional explanation**  
  Convection moves heat as rising columns of super‑heated air, smoke, and gases. These columns dry and ignite fuels ahead of the flame front and can transport burning embers long distances, making convection the primary driver of wildfire spread.  
- *Distractor rebuttals*   
+ *Distractor rebuttals*
  A – Conduction through soil or wood is slow and minor in wildfires.  
  C – Radiation warms fuels but is less important than moving hot air.  
  D – Photosynthesis is unrelated to heat transfer.
@@ -205,7 +205,7 @@ A. Conduction
 **Answer:** The southwest‑facing slope
 
 **Instructional explanation**  
- South‑ and southwest‑facing slopes receive the day’s strongest solar heating, leaving their light, flashy fuels hottest and driest by early afternoon, so fire intensity peaks there at this time. 
+ South‑ and southwest‑facing slopes receive the day’s strongest solar heating, leaving their light, flashy fuels hottest and driest by early afternoon, so fire intensity peaks there at this time.
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -436,7 +436,7 @@ A Plain water B Wetting agent C Class A foam D Gel polymer
 **Answer:** Burning‑out (also called firing‑out)
 
 **Explanation**  
- Burning‑out eliminates fuels immediately inside the control line, letting the main fire reach only already‑black ground. It differs from a backfire, which is lit farther ahead and relies on the main fire’s draft to pull flames toward it. 
+ Burning‑out eliminates fuels immediately inside the control line, letting the main fire reach only already‑black ground. It differs from a backfire, which is lit farther ahead and relies on the main fire’s draft to pull flames toward it.
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -521,7 +521,7 @@ A Plain water B Wetting agent C Class A foam D Gel polymer
 **Answer:** 15
 
 **Instructional explanation**  
- Knowing average production lets incident leaders match resources to fire size and fuel type; a standard 15‑person crew’s capability sets baseline expectations for grass fires and highlights when additional crews or heavy equipment are required. 
+ Knowing average production lets incident leaders match resources to fire size and fuel type; a standard 15‑person crew’s capability sets baseline expectations for grass fires and highlights when additional crews or heavy equipment are required.
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -960,7 +960,7 @@ A. GPS stops working whenever clouds cover the sky
  *Distractors:*  
  A – Cloud cover has minimal effect on GPS reception.  
  C – Units run on batteries that must be monitored.  
- D – Civilian GPS is accurate to meters, not miles. (p. 485) 
+ D – Civilian GPS is accurate to meters, not miles. (p. 485)
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -1004,6 +1004,7 @@ Format – Numeric calculation
  2\. Approximately how many square feet must be kept bare? *(Use π ≈ 3.14.)*
 
 Answer:  
+
  1. 20 ft 2. ≈ 314 ft²  
  Working:  
   • Diameter = 2 × 10 ft = 20 ft  
@@ -1196,4 +1197,3 @@ Answer:
 
 **Explanation**  
  Swatters deprive small, light‑fuel fires of oxygen without blowing sparks. The chapter notes smothering tools are most effective on short flames in grass or leaf litter
-

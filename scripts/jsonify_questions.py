@@ -27,7 +27,9 @@ QUESTION_B_HEADER_REGEX = re.compile(
     r"^\s*(?:#{3,4}\s*)?(?:\*\*(?P<bold_header>.+?)\*\*|(?P<plain_header>[^\n*][^\n]*))\s*$",
     re.MULTILINE,
 )
-FORMAT_LABEL_REGEX = re.compile(r"(?im)^\s*(?:\*{0,2}Format[^\\n]*\*{0,2}|\*Format[^\\n]*\*)\s*$")
+FORMAT_LABEL_REGEX = re.compile(
+    r"(?im)^\s*(?:\*{0,2}Format[^\\n]*\*{0,2}|\*Format[^\\n]*\*)\s*$"
+)
 QUESTION_LABEL_REGEX = re.compile(
     r"(?im)^\s*\*{0,2}(?:Question|Scenario)(?:\s*\([^)\n]+\))?:?\*{0,2}\s*"
 )
@@ -35,6 +37,8 @@ ANSWER_LABEL_REGEX = re.compile(r"(?im)^\s*\*{0,2}Answer:?\*{0,2}\s*")
 EXPLANATION_LABEL_REGEX = re.compile(
     r"(?im)^\s*\*{0,2}(?:Instructional explanation|Explanation(?:\s*&\s*steps)?):?\*{0,2}\s*"
 )
+
+
 def clean_field(text: str) -> str:
     return text.strip().replace("\r\n", "\n")
 
@@ -78,7 +82,11 @@ def parse_questions_a(chapter_text: str) -> list[dict[str, str]]:
     questions = []
     for index, match in enumerate(headers):
         start = match.start()
-        end = headers[index + 1].start() if index + 1 < len(headers) else len(chapter_text)
+        end = (
+            headers[index + 1].start()
+            if index + 1 < len(headers)
+            else len(chapter_text)
+        )
         block = chapter_text[start:end].strip()
 
         header_line = match.group(0)
@@ -100,7 +108,9 @@ def parse_questions_a(chapter_text: str) -> list[dict[str, str]]:
 
         questions.append(
             {
-                "concept_description": clean_field(metadata.group("concept_description")),
+                "concept_description": clean_field(
+                    metadata.group("concept_description")
+                ),
                 "difficulty": clean_field(metadata.group("difficulty")),
                 "question_text": clean_field(question_match.group("question_text")),
                 "answer": clean_field(answer_match.group("answer")),
@@ -126,7 +136,9 @@ def parse_questions_b(chapter_text: str) -> list[dict[str, str]]:
             continue
 
         header = clean_inline_markup(
-            header_match.group("bold_header") or header_match.group("plain_header") or ""
+            header_match.group("bold_header")
+            or header_match.group("plain_header")
+            or ""
         )
         remainder = block[header_match.end() :].strip()
 
@@ -145,10 +157,14 @@ def parse_questions_b(chapter_text: str) -> list[dict[str, str]]:
         question_portion = remainder[: answer_match.start()].strip()
         answer_portion = remainder[answer_match.end() :].strip()
 
-        question_portion = QUESTION_LABEL_REGEX.sub("", question_portion, count=1).strip()
+        question_portion = QUESTION_LABEL_REGEX.sub(
+            "", question_portion, count=1
+        ).strip()
 
         if not format_line:
-            question_lines = [line for line in question_portion.splitlines() if line.strip()]
+            question_lines = [
+                line for line in question_portion.splitlines() if line.strip()
+            ]
             if len(question_lines) > 1:
                 first_line = clean_inline_markup(question_lines[0])
                 if len(first_line) <= 80 and "?" not in first_line:
@@ -169,7 +185,9 @@ def parse_questions_b(chapter_text: str) -> list[dict[str, str]]:
         )
         if concept_match:
             concept_num = concept_match.group("concept_num")
-            concept_description = clean_field(concept_match.group("concept_description"))
+            concept_description = clean_field(
+                concept_match.group("concept_description")
+            )
             item_type = clean_field(concept_match.group("item_type") or "")
         else:
             concept_num = ""

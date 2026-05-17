@@ -1,14 +1,21 @@
+import random
+import string
 import json
-from typing import Literal, Optional
-from src.models import QuestionGrade, QuestionAttempt
-from src.db import DataStore
+from typing import Optional, List, Literal
+from sqlmodel import Session, create_engine, select, and_, SQLModel
 from outlines.inputs import Chat
+from src.models import (
+    Assessment,
+    QuestionAttempt,
+    ChatMessage,
+    Question,
+    Chapter,
+    ChapterAttempt,
+)
 
 """
 Question database management
 """
-
-JSON_PATH = "./data/wildfire_questions_B.json"
 
 QUESTION_TEMPLATE = """
 ## Concept: {concept_description}
@@ -22,148 +29,266 @@ before the assessment will automatically progress to the next question.
 
 
 class AssessmentServer:
-    def __init__(self, db: DataStore, json_path: str = JSON_PATH) -> None:
-        self.json_path = json_path
-        self.data = self.load_data()
-        self.db = db
-
-        self.max_chapter = max(
-            int(chapter_data["chapter"]) for chapter_data in self.data
-        )
-
+    def __init__(self, db_url: str = "sqlite:///data/wildfire.db"):
+        self.engine = create_engine(db_url, connect_args={"check_same_thread": False})
         self.max_clarifications = 5
         self.max_answer_attempts = 5
 
-        # attempts: dict[(chapter, question_index), int]
-        self.num_clarifications: dict[tuple[int, int], int] = {}
-        self.num_answer_attempts: dict[tuple[int, int], int] = {}
+    def init_db(self):
+        """Initialize database tables."""
+        SQLModel.metadata.create_all(self.engine)
 
-        # chats: dict[(chapter, question_index), chat_dict]
-        self.chats: dict[tuple[int, int], dict[str, Chat]] = {}
-        # question_evals: dict[(chapter, question_index), QuestionGrade]
-        self.question_evals: dict[tuple[int, int], QuestionGrade] = {}
+    # --- Session Management ---
 
-    def _get_attempt(self, chapter: int, question_index: int) -> QuestionAttempt:
-        """Helper to get or init a question attempt"""
-        chapter_id, question_id = str(chapter), str(question_index)
-        if chapter_id not in self.db.assessment.progress:
-            self.db.assessment.progress[chapter_id] = {}
-        if question_id not in self.db.assessment.progress[chapter_id]:
-            self.db.assessment.progress[chapter_id][question_id] = QuestionAttempt()
-        return self.db.assessment.progress[chapter_id][question_id]
+    def _generate_code(self) -> str:
+        """Generate a unique exam code."""
+        chars = string.ascii_uppercase + string.digits
+        return "-".join(["".join(random.choices(chars, k=2)) for _ in range(3)])
 
-    def get_chat(self, chapter: int, question_index: int) -> Optional[dict[str, Chat]]:
-        attempt = self._get_attempt(chapter, question_index)
-        if not attempt.history:
-            return None
-        
-        return {}
+    def create_assessment(self) -> tuple[int, str]:
+        """Add a blank Assessment and return (id, code)."""
+        with Session(self.engine) as session:
+            code = self._generate_code()
+            # Ensure uniqueness
+            while session.exec(
+                select(Assessment).where(Assessment.exam_code == code)
+            ).first():
+                code = self._generate_code()
 
-    def set_chat(self, chapter: int, question_index: int, chat_dict: dict[str, Chat]) -> None:
-        self.chats[(chapter, question_index)] = chat_dict
+            db_ass = Assessment(exam_code=code)
+            session.add(db_ass)
+            session.commit()
+            session.refresh(db_ass)
+            return db_ass.id, db_ass.exam_code
 
-    def add_question_grade(
-        self, eval: "QuestionGrade", chapter: int, question_index: int
-    ) -> None:
-        self.question_evals[(chapter, question_index)] = eval
+    def get_assessment_by_code(self, code: str) -> Optional[Assessment]:
+        """Retrieve Assessment by code."""
+        with Session(self.engine) as session:
+            return session.exec(
+                select(Assessment).where(Assessment.exam_code == code)
+            ).first()
 
-    def get_question_status_icon(self, chapter: int, question_index: int) -> str:
+    # --- Question & Chapter Lookups ---
+
+    def get_question(self, chapter_id: int, question_index: int) -> Optional[Question]:
+        """Maps logical chapter ID and question index to DB Question object."""
+        with Session(self.engine) as session:
+            stmt = (
+                select(Question)
+                .where(Question.chapter_id == chapter_id)
+                .order_by(Question.id)
+            )
+            questions = session.exec(stmt).all()
+            return (
+                questions[question_index] if question_index < len(questions) else None
+            )
+
+    def get_chapter_title(self, chapter_id: int) -> Optional[str]:
+        with Session(self.engine) as session:
+            chapter = session.get(Chapter, chapter_id)
+            return chapter.title if chapter else None
+
+    # --- Attempt Management ---
+
+    def get_or_create_attempt(
+        self, assessment_id: int, question_id: int
+    ) -> QuestionAttempt:
+        with Session(self.engine) as session:
+            stmt = select(QuestionAttempt).where(
+                and_(
+                    QuestionAttempt.assessment_id == assessment_id,
+                    QuestionAttempt.question_id == question_id,
+                )
+            )
+            attempt = session.exec(stmt).first()
+            if not attempt:
+                attempt = QuestionAttempt(
+                    assessment_id=assessment_id, question_id=question_id
+                )
+                session.add(attempt)
+                session.commit()
+                session.refresh(attempt)
+            return attempt
+
+    def increment_stats(self, attempt_id: int, is_answer: bool = True):
+        """Increments attempt or clarification count in DB."""
+        with Session(self.engine) as session:
+            attempt = session.get(QuestionAttempt, attempt_id)
+            if not attempt:
+                return
+            if is_answer:
+                attempt.num_answer_attempts += 1
+            else:
+                attempt.num_clarifications += 1
+            session.add(attempt)
+            session.commit()
+
+    # --- Chat Persistence (Lazy Reconstruction) ---
+
+    def record_message(
+        self, attempt_id: int, role: Literal["user", "assistant"], content: str
+    ):
+        """Saves a message to the unified chat log."""
+        with Session(self.engine) as session:
+            msg = ChatMessage(attempt_id=attempt_id, role=role, content=content)
+            session.add(msg)
+            session.commit()
+
+    def load_chat_for_llm(
+        self,
+        attempt_id: int,
+        system_prompt: str,
+        role: Literal["proctor", "student", "grader"],
+    ) -> Chat:
         """
-        Return icon based on proctor's judgment:
-        - ✅ if answered fully and graded
-        - ❓ if follow-up needed
-        - "" if unanswered
+        Lazily reconstructs a Chat object from DB messages.
+        Injects question data dynamically based on the target role.
         """
-        eval = self.question_evals.get((chapter, question_index))
-        if eval:
-            return "✅"
-        answer_attempts = self.num_answer_attempts.get((chapter, question_index), 0)
-        if answer_attempts >= 1:
-            return "❓"
-        return ""
-        
+        with Session(self.engine) as session:
+            attempt = session.get(QuestionAttempt, attempt_id)
+            if not attempt:
+                chat = Chat()
+                chat.add_system_message(system_prompt)
+                return chat
 
-    def get_chapter_data(
-        self, chapter_index: int
-    ) -> dict[str, str | list[dict[str, str]]]:
-        chapter_data = [
-            chapter for chapter in self.data if int(chapter["chapter"]) == chapter_index
-        ]
-        assert len(chapter_data) == 1
-        return chapter_data[0]
+            question = attempt.question
 
-    def attempted_chapters(self) -> list[int]:
-        return sorted(list(set(k[0] for k in self.question_evals.keys())))
+            chat = Chat()
+            chat.add_system_message(system_prompt)
 
-    def last_chapter_attempted(self) -> int:
-        chapters = self.attempted_chapters()
-        return max(chapters) if chapters else 1
+            # Inject question data
+            q_data = {
+                "concept_description": question.concept_description,
+                "question_format": question.question_format,
+                "question_text": question.question_text,
+            }
+            if role in ["proctor", "grader"]:
+                q_data["answer_key"] = question.answer
+                q_data["explanation_ground_truth"] = question.explanation_text
 
-    def evaluate_remaining_questions(self, grade_callback) -> None:
-        """
-        Iterate through all questions that have chat history but no grade.
-        Call grade_callback(chat_dict, chapter, question_index) for each.
-        """
-        for (chapter, question_index), chat_dict in self.chats.items():
-            if (chapter, question_index) not in self.question_evals:
-                # only grade if student has spoken
-                if len(chat_dict["main_chat"].messages) > 3: # greeting + question + status > 3
-                     grade_callback(chat_dict, chapter, question_index)
+            chat.add_system_message(
+                f"Current Question Context:\n{json.dumps(q_data, indent=2)}"
+            )
 
-    def load_data(self) -> list[dict[str, str | list[dict[str, str]]]]:
-        with open(self.json_path) as f:
-            data = json.load(f)
-        return data
+            # Proctor also gets the formatted question text as a system message to know what was shown
+            if role == "proctor":
+                chat.add_system_message(
+                    f"The student was shown the following:\n{self.format_question(question)}"
+                )
 
-    def increment_clarifications(self, chapter: int, question_index: int):
-        key = (chapter, question_index)
-        self.num_clarifications[key] = self.num_clarifications.get(key, 0) + 1
+            # Sort by timestamp, then ID for stable ordering
+            sorted_msgs = sorted(attempt.chats, key=lambda c: (c.timestamp, c.id))
 
-    def increment_attempts(self, chapter: int, question_index: int):
-        key = (chapter, question_index)
-        self.num_answer_attempts[key] = self.num_answer_attempts.get(key, 0) + 1
+            for m in sorted_msgs:
+                if m.role == "user":
+                    chat.add_user_message(m.content)
+                elif m.role == "assistant":
+                    chat.add_assistant_message(m.content)
+            return chat
 
-    def remaining_clarifications(self, chapter: int, question_index: int) -> int:
-        return self.max_clarifications - self.num_clarifications.get((chapter, question_index), 0)
+    # --- Grade & Summary Persistence ---
 
-    def remaining_attempts(self, chapter: int, question_index: int) -> int:
-        return self.max_answer_attempts - self.num_answer_attempts.get((chapter, question_index), 0)
+    def save_llm_result(
+        self, target_id: int, result: dict, type: Literal["question", "chapter", "test"]
+    ):
+        """Saves JSON blob results (QuestionGrade, ChapterSummary, TestSummary)."""
+        with Session(self.engine) as session:
+            if type == "question":
+                obj = session.get(QuestionAttempt, target_id)
+                if obj:
+                    obj.grade_data = result
+            elif type == "chapter":
+                obj = session.get(ChapterAttempt, target_id)
+                if obj:
+                    obj.summary_data = result
+            elif type == "test":
+                obj = session.get(Assessment, target_id)
+                if obj:
+                    obj.test_summary = result
 
-    def get_attempt_and_clarification_message(self, chapter: int, question_index: int) -> str:
-        rem_attempts = self.remaining_attempts(chapter, question_index)
-        rem_clarifications = self.remaining_clarifications(chapter, question_index)
-        if rem_attempts <= 0:
-            return "Max answer attempts reached for this question!"
+            if obj:
+                session.add(obj)
+                session.commit()
 
-        if rem_clarifications <= 0:
-            return f"Max clarification questions reached. {rem_attempts} answer attempts remain."
+    # --- UI Helpers ---
 
-        return f"There are {rem_clarifications} clarification questions and {rem_attempts} answer attempts remaining for this question."
-
-    def get_question_status(
-        self, chapter: int, question_index: int
-    ) -> Literal["attempts_and_clarifications", "no_clarifications", "no_attempts"]:
-        if self.remaining_attempts(chapter, question_index) <= 0:
-            return "no_attempts"
-        if self.remaining_clarifications(chapter, question_index) <= 0:
-            return "no_clarifications"
-        return "attempts_and_clarifications"
-
-    def get_question_data(self, chapter_index: int, question_index: int) -> dict[str, str]:
-        chapter_data = self.get_chapter_data(chapter_index)
-        question_data = chapter_data["questions"][question_index]
-        assert type(question_data) is dict
-        question_data = {
-            "chapter": str(chapter_index),
-            "title": chapter_data["title"],
-            **question_data,
-        }
-        return question_data
-
-    def format_question(self, **question_data) -> str:
-        question_str = QUESTION_TEMPLATE.format(
+    def format_question(self, question: Question) -> str:
+        return QUESTION_TEMPLATE.format(
             max_clarifications=self.max_clarifications,
             max_answer_attempts=self.max_answer_attempts,
-            **question_data,
+            concept_description=question.concept_description,
+            question_format=question.question_format,
+            question_text=question.question_text,
         )
-        return question_str
+
+    def get_status_message(self, attempt_id: int) -> str:
+        with Session(self.engine) as session:
+            attempt = session.get(QuestionAttempt, attempt_id)
+            if not attempt:
+                return ""
+
+            rem_attempts = self.max_answer_attempts - attempt.num_answer_attempts
+            rem_clarifications = self.max_clarifications - attempt.num_clarifications
+
+            if rem_attempts <= 0:
+                return "Max answer attempts reached!"
+            if rem_clarifications <= 0:
+                return f"Max clarifications reached. {rem_attempts} answer attempts remain."
+            return f"Remaining: {rem_clarifications} clarifications, {rem_attempts} answer attempts."
+
+    def get_ungraded_attempts(self, assessment_id: int) -> List[QuestionAttempt]:
+        """Returns all attempts that have messages but no grade_data."""
+        with Session(self.engine) as session:
+            stmt = (
+                select(QuestionAttempt)
+                .join(ChatMessage)
+                .where(
+                    and_(
+                        QuestionAttempt.assessment_id == assessment_id,
+                        QuestionAttempt.grade_data.is_(None),
+                    )
+                )
+                .distinct()
+            )
+            return session.exec(stmt).all()
+
+    def get_attempted_chapters(self, assessment_id: int) -> List[Chapter]:
+        """Returns all chapters that have at least one question attempt."""
+        with Session(self.engine) as session:
+            stmt = (
+                select(Chapter)
+                .join(Question)
+                .join(QuestionAttempt)
+                .where(QuestionAttempt.assessment_id == assessment_id)
+                .distinct()
+                .order_by(Chapter.id)
+            )
+            return session.exec(stmt).all()
+
+    def get_or_create_chapter_attempt(
+        self, assessment_id: int, chapter_id: int
+    ) -> ChapterAttempt:
+        with Session(self.engine) as session:
+            stmt = select(ChapterAttempt).where(
+                and_(
+                    ChapterAttempt.assessment_id == assessment_id,
+                    ChapterAttempt.chapter_id == chapter_id,
+                )
+            )
+            attempt = session.exec(stmt).first()
+            if not attempt:
+                attempt = ChapterAttempt(
+                    assessment_id=assessment_id, chapter_id=chapter_id
+                )
+                session.add(attempt)
+                session.commit()
+                session.refresh(attempt)
+            return attempt
+
+    def get_question_status_icon(self, attempt: QuestionAttempt) -> str:
+        """Returns colorless icon based on attempt state."""
+        if attempt.grade_data:
+            return "✔"
+        if attempt.num_answer_attempts > 0:
+            return "❔"
+        return ""

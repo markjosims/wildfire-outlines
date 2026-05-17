@@ -448,7 +448,7 @@ CONCEPT: LCES (Lookouts, Communications, Escape Routes, Safety Zones)\] \[DIFFIC
  B. Agitate the concentrate container, then apply \~3% gel to vulnerable points (windows/vents) and adjacent fuels; plan to lightly mist to rehydrate if needed  
  C. Use Class A foam at 5% to maximize duration on walls  
  D. Skip gels entirely; they’re expensive and no rehydration is possible  
- **Answer:** B – structure protection uses \~3% gel; treat vulnerable areas and nearby fuels (not always whole structure), agitate long-stored concentrate, and rehydrate gently as it dries. Ratios above 1% for Class A foam aren’t advised; gels can hold up to \~24 hours. (pp. 230–233) 
+ **Answer:** B – structure protection uses \~3% gel; treat vulnerable areas and nearby fuels (not always whole structure), agitate long-stored concentrate, and rehydrate gently as it dries. Ratios above 1% for Class A foam aren’t advised; gels can hold up to \~24 hours. (pp. 230–233)
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -508,7 +508,7 @@ CONCEPT: LCES (Lookouts, Communications, Escape Routes, Safety Zones)\] \[DIFFIC
  B. Fly higher to widen coverage.  
  C. Reassign/release aircraft if conditions exceed safe/effective limits; coordinate ground tactics with air attack.  
  D. Use aircraft alone without ground follow-up.  
- Answer: C – Explanation: Air ops are limited by steep terrain, winds \>20 mph, snags, and visibility; aircraft should support ground forces and be released when not effective/safe. (pp. 265–266, 277–279) 
+ Answer: C – Explanation: Air ops are limited by steep terrain, winds \>20 mph, snags, and visibility; aircraft should support ground forces and be released when not effective/safe. (pp. 265–266, 277–279)
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -584,11 +584,11 @@ CONCEPT: LCES (Lookouts, Communications, Escape Routes, Safety Zones)\] \[DIFFIC
 
 **\[CONCEPT:** Mop-Up & Patrol **\] \[DIFFICULTY:** Hard **\]**  
  **QUESTION:** Numeric calculation. Your perimeter sketch shows a roughly rectangular black: 210 ft by 628 ft. What acreage do you report initially to dispatch, and why report it that way? Show your work.  
- **Answer:** \~3.0 acres, conservatively. Work: Area \= 210 ft × 628 ft \= 131,880 ft². Acres \= 131,880 ÷ 43,560 ≈ 3.03 ac. Round to \~3 ac and avoid overstatement; accurate but conservative estimates guide resources and public info. (pp. 307–310) 
+ **Answer:** \~3.0 acres, conservatively. Work: Area \= 210 ft × 628 ft \= 131,880 ft². Acres \= 131,880 ÷ 43,560 ≈ 3.03 ac. Round to \~3 ac and avoid overstatement; accurate but conservative estimates guide resources and public info. (pp. 307–310)
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
-**CHAPTER 9 Wildland/Urban Firefighting: Strategies and Tactics** 
+**CHAPTER 9 Wildland/Urban Firefighting: Strategies and Tactics**
 
 \[CONCEPT: Wildland/Urban (WUI) Conditions \] \[DIFFICULTY: Easy \]  
  QUESTION: On patrol you find homes scattered throughout continuous chaparral with no clear line between houses and brush. What WUI condition best describes this area?  
@@ -656,7 +656,7 @@ CONCEPT: LCES (Lookouts, Communications, Escape Routes, Safety Zones)\] \[DIFFIC
  B. Remain mobile and start structure triage  
  C. Focus on interior attacks on involved houses  
  D. Stage and wait for more resources  
- Answer: B – When threatened homes exceed engines, you must stay mobile and triage; you won’t protect them all. Why not A: hydrant tie-in reduces mobility. Why not C: structure protection usually excludes interior attack. Why not D: delaying risks loss. Refs: p. 9-8. 
+ Answer: B – When threatened homes exceed engines, you must stay mobile and triage; you won’t protect them all. Why not A: hydrant tie-in reduces mobility. Why not C: structure protection usually excludes interior attack. Why not D: delaying risks loss. Refs: p. 9-8.
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -724,7 +724,7 @@ CONCEPT: LCES (Lookouts, Communications, Escape Routes, Safety Zones)\] \[DIFFIC
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
-**CHAPTER 11 Firefighting Realities** 
+**CHAPTER 11 Firefighting Realities**
 
 \[CONCEPT: Risk vs. Values—Risk Management Mindset \] \[DIFFICULTY: Easy \]  
  QUESTION: Fill in the blank: Dr. Gordon Graham says, “If it is \_\_\_\_\_\_, it is preventable,” reminding firefighters to anticipate hazards and choose tactics that reduce risk while still protecting valuable assets.  
@@ -784,7 +784,7 @@ CONCEPT: LCES (Lookouts, Communications, Escape Routes, Safety Zones)\] \[DIFFIC
  B. Pause ordering; wait for nightfall  
  C. Project spread, set broad objectives, establish anchors/indirect lines, plan “what-ifs,” and order adequately early  
  D. Focus solely on structure defense and ignore fire behavior  
- Answer: C – Project spread, set broad objectives, establish anchors/indirect lines, plan “what-ifs,” and order adequately early. Explanation: Mega-fire management demands big-picture planning and timely resourcing; incremental thinking signals under-projection. Rebuttals: A—Symptom of “thinking small.” B—Loses critical time. D—One-track focus misses fire dynamics. \[pp. 436–444\] 
+ Answer: C – Project spread, set broad objectives, establish anchors/indirect lines, plan “what-ifs,” and order adequately early. Explanation: Mega-fire management demands big-picture planning and timely resourcing; incremental thinking signals under-projection. Rebuttals: A—Symptom of “thinking small.” B—Loses critical time. D—One-track focus misses fire dynamics. \[pp. 436–444\]
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -972,7 +972,7 @@ CONCEPT: LCES (Lookouts, Communications, Escape Routes, Safety Zones)\] \[DIFFIC
  **B.** Isolate the area and direct people upwind/upgrade to a safe distance; avoid walking into/through the spill or vapors; maintain comms with supervisor/dispatch  
  **C.** Attempt to neutralize the liquid with dirt while you wait for haz-mat specialists  
  **D.** Ignore until a confirmed placard or shipping paper is found  
- **Answer:** B – First isolate and keep the public away, stay upwind/upgrade, avoid contact/inhalation, and maintain communications; do not rush in or manipulate the product. A/C/D violate “do not touch,” “avoid vapors,” and the need to act defensively early. (pp. 507–509). 
+ **Answer:** B – First isolate and keep the public away, stay upwind/upgrade, avoid contact/inhalation, and maintain communications; do not rush in or manipulate the product. A/C/D violate “do not touch,” “avoid vapors,” and the need to act defensively early. (pp. 507–509).
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -1109,7 +1109,7 @@ Explanation Up‑to‑date weather drives predictions of wind shifts, humidity, 
 
 Answer: Situation 9 – *Building fireline downhill with fire below;* switch to a flanking or upslope anchor, or withdraw to a safety zone.
 
-Explanation Down‑slope line construction above the fire invites rapid uphill runs that can overtake crews before they can climb out; redirecting tactics or retreating removes the chimney‑effect hazard. 
+Explanation Down‑slope line construction above the fire invites rapid uphill runs that can overtake crews before they can climb out; redirecting tactics or retreating removes the chimney‑effect hazard.
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -1196,7 +1196,7 @@ A. Thinner air at higher elevation cools the flames
 
 **Instructional explanation**  
  On a slope, flames and hot gases rise vertically while the ground angles upward, lifting the next layer of vegetation closer to that heat. Pre‑heating and ignition happen faster, so spread accelerates; the steeper the slope, the faster the run.  
- *Distractor rebuttals*   
+ *Distractor rebuttals*
  A – Cooler air would slow, not speed, burning.  
  C – Rolling embers move downslope and do not boost uphill spread.  
  D – Shade reduces heating; steep sunny slopes actually receive **more** radiation, not less.
@@ -1244,7 +1244,7 @@ A. Conduction
 
 **Instructional explanation**  
  Convection moves heat as rising columns of super‑heated air, smoke, and gases. These columns dry and ignite fuels ahead of the flame front and can transport burning embers long distances, making convection the primary driver of wildfire spread.  
- *Distractor rebuttals*   
+ *Distractor rebuttals*
  A – Conduction through soil or wood is slow and minor in wildfires.  
  C – Radiation warms fuels but is less important than moving hot air.  
  D – Photosynthesis is unrelated to heat transfer.
@@ -1259,7 +1259,7 @@ A. Conduction
 **Answer:** The southwest‑facing slope
 
 **Instructional explanation**  
- South‑ and southwest‑facing slopes receive the day’s strongest solar heating, leaving their light, flashy fuels hottest and driest by early afternoon, so fire intensity peaks there at this time. 
+ South‑ and southwest‑facing slopes receive the day’s strongest solar heating, leaving their light, flashy fuels hottest and driest by early afternoon, so fire intensity peaks there at this time.
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -1490,7 +1490,7 @@ A Plain water B Wetting agent C Class A foam D Gel polymer
 **Answer:** Burning‑out (also called firing‑out)
 
 **Explanation**  
- Burning‑out eliminates fuels immediately inside the control line, letting the main fire reach only already‑black ground. It differs from a backfire, which is lit farther ahead and relies on the main fire’s draft to pull flames toward it. 
+ Burning‑out eliminates fuels immediately inside the control line, letting the main fire reach only already‑black ground. It differs from a backfire, which is lit farther ahead and relies on the main fire’s draft to pull flames toward it.
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -1575,7 +1575,7 @@ A Plain water B Wetting agent C Class A foam D Gel polymer
 **Answer:** 15
 
 **Instructional explanation**  
- Knowing average production lets incident leaders match resources to fire size and fuel type; a standard 15‑person crew’s capability sets baseline expectations for grass fires and highlights when additional crews or heavy equipment are required. 
+ Knowing average production lets incident leaders match resources to fire size and fuel type; a standard 15‑person crew’s capability sets baseline expectations for grass fires and highlights when additional crews or heavy equipment are required.
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -2014,7 +2014,7 @@ A. GPS stops working whenever clouds cover the sky
  *Distractors:*  
  A – Cloud cover has minimal effect on GPS reception.  
  C – Units run on batteries that must be monitored.  
- D – Civilian GPS is accurate to meters, not miles. (p. 485) 
+ D – Civilian GPS is accurate to meters, not miles. (p. 485)
 
 **\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_**
 
@@ -2058,6 +2058,7 @@ Format – Numeric calculation
  2\. Approximately how many square feet must be kept bare? *(Use π ≈ 3.14.)*
 
 Answer:  
+
  1. 20 ft 2. ≈ 314 ft²  
  Working:  
   • Diameter = 2 × 10 ft = 20 ft  
@@ -2250,4 +2251,3 @@ Answer:
 
 **Explanation**  
  Swatters deprive small, light‑fuel fires of oxygen without blowing sparks. The chapter notes smothering tools are most effective on short flames in grass or leaf litter
-
