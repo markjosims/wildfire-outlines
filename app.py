@@ -4,13 +4,15 @@ Stateless version using AssessmentServer.
 """
 
 import streamlit as st
+import os
 from src.assessment_server import AssessmentServer
 from src.chat import (
     handle_intro_chat,
     handle_question,
     handle_student_message,
     handle_lm_student_response,
-    handle_proctor_response,
+    handle_proctor_response_decision,
+    handle_proctor_student_response,
     handle_proctor_preparation,
     handle_question_grading,
     handle_chapter_summary,
@@ -18,16 +20,17 @@ from src.chat import (
     get_system_prompt,
 )
 from outlines.inputs import Chat
-from typing import Optional, Literal, List
+from sqlmodel import Session, select, and_
+from typing import Optional, Literal
 
 from src.models import (
     ChapterSummary,
     QuestionGrade,
-    Response,
     TestSummary,
     Question,
     QuestionAttempt,
     Chapter,
+    Assessment,
 )
 
 st.set_page_config(layout="wide", page_title="Wildfire Assessment")
@@ -38,6 +41,9 @@ st.title("Wildfire demo assessment")
 
 @st.cache_resource
 def get_assessment_server():
+    """
+    Load `AssessmentServer` and initialize database.
+    """
     server = AssessmentServer()
     server.init_db()
     return server
@@ -45,16 +51,56 @@ def get_assessment_server():
 
 server: AssessmentServer = get_assessment_server()
 
+# --- Session State Initialization ---
+
 if "assessment_id" not in st.session_state:
-    # Optional: Start with a new assessment automatically or wait for code
-    if "auto_start" not in st.session_state:
-        st.session_state.assessment_id, st.session_state.exam_code = (
-            server.create_assessment()
-        )
-        st.session_state.auto_start = True
+    st.session_state.assessment_id = None
+    st.session_state.exam_code = None
 
 if "active_question" not in st.session_state:
-    st.session_state.active_question = None  # None means greeting/intro
+    st.session_state.active_question = None
+
+# --- Global Header ---
+
+if st.session_state.exam_code:
+    st.info(f"Exam Code: **{st.session_state.exam_code}**")
+
+# --- Splash Page / Entry Logic ---
+
+
+def render_splash():
+    st.subheader("Get Started")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.write("### New Assessment")
+        if st.button("Generate New Exam Code", type="primary", use_container_width=True):
+            id, code = server.create_assessment()
+            st.session_state.assessment_id = id
+            st.session_state.exam_code = code
+            st.rerun()
+
+    with col2:
+        st.write("### Resume Assessment")
+        code_input = st.text_input("Enter your Exam Code (e.g., AB-12-CD)")
+        if st.button("Resume", use_container_width=True):
+            if code_input:
+                assessment = server.get_assessment_by_code(code_input.upper())
+                if assessment:
+                    st.session_state.assessment_id = assessment.id
+                    st.session_state.exam_code = assessment.exam_code
+                    st.rerun()
+                else:
+                    st.error("Invalid Exam Code. Please check and try again.")
+            else:
+                st.warning("Please enter a code.")
+
+
+# --- Main Flow ---
+
+if st.session_state.assessment_id is None:
+    render_splash()
+    st.stop()
 
 # --- Helper Render Functions ---
 
@@ -62,18 +108,25 @@ if "active_question" not in st.session_state:
 def get_user_response_type(
     server: AssessmentServer, attempt: QuestionAttempt
 ) -> Optional[Literal["Answer", "Ask for clarification"]]:
-    rem_attempts = server.max_answer_attempts - attempt.num_answer_attempts
-    rem_clari = server.max_clarifications - attempt.num_clarifications
+    """
+    Provides UI for retrieving user response type. Each user turn in a
+    question chat may be an answer attempt or a request for clarification.
+    The AssessmentServer provides a limited number of answer attempts or
+    clarification requests, so the widget is disabled if the maximum for a
+    type is reached.
+    """
+    remaining_attempts = server.max_answer_attempts - attempt.num_answer_attempts
+    remaining_clarifications = server.max_clarifications - attempt.num_clarifications
 
-    if rem_attempts <= 0:
+    if remaining_attempts <= 0:
         st.warning("Max attempts reached.")
         return None
 
-    answer_label = f"Answer ({rem_attempts}/{server.max_answer_attempts})"
-    clarify_label = f"Clarify ({rem_clari}/{server.max_clarifications})"
+    answer_label = f"Answer ({remaining_attempts}/{server.max_answer_attempts})"
+    clarify_label = f"Clarify ({remaining_clarifications}/{server.max_clarifications})"
 
     options = [answer_label]
-    if rem_clari > 0:
+    if remaining_clarifications > 0:
         options.append(clarify_label)
 
     raw = st.pills("Response type", options, key=f"pills_{attempt.id}")
@@ -86,15 +139,15 @@ def get_user_response_type(
 
 
 def render_greeting():
+    """
+    Display intro chat with LLM proctor.
+    """
     st.subheader("Welcome to the Wildfire Assessment")
-    st.info(f"Your Exam Code: **{st.session_state.get('exam_code', 'N/A')}**")
 
     # Ephemeral intro chat
     if "intro_chat" not in st.session_state:
         with st.spinner("Proctor is joining..."):
-            st.session_state.intro_chat = handle_intro_chat(
-                server, st.session_state.assessment_id
-            )
+            st.session_state.intro_chat = handle_intro_chat()
 
     intro_chat: Chat = st.session_state.intro_chat
 
@@ -105,16 +158,26 @@ def render_greeting():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
+    if "pending_intro_decision" in st.session_state:
+        decision = st.session_state["pending_intro_decision"]
+        with st.chat_message("assistant"):
+            full_response = st.write_stream(
+                handle_proctor_student_response(server, None, decision)
+            )
+            intro_chat.add_assistant_message(str(full_response))
+        del st.session_state["pending_intro_decision"]
+        st.rerun()
+
     # Generic interaction (not persisted in this demo for intro)
-    if prompt := st.chat_input("Ask about the exam setup...", key="intro_input"):
+    elif prompt := st.chat_input("Ask about the exam setup...", key="intro_input"):
         intro_chat.add_user_message(prompt)
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        with st.spinner("Proctor is responding..."):
-            # Simple ephemeral response for intro
-            response = handle_proctor_response(server, is_question=False)
-            intro_chat.add_assistant_message(response.message)
+        with st.spinner("Proctor is thinking..."):
+            decision = handle_proctor_response_decision(server)
+            st.session_state["pending_intro_decision"] = decision
+
         st.rerun()
 
     st.divider()
@@ -123,9 +186,12 @@ def render_greeting():
         st.rerun()
 
 
-def render_question(attempt_id: int, question: Question):
+def render_question(attempt_id: int, question: Question, server: AssessmentServer):
+    """
+    Render question text and chat history pertinent to a given question.
+    """
     # Display question text prominently at the top
-    st.markdown(f"**Question:**\n{question.question_text}")
+    st.markdown(server.format_question(question))
     st.divider()
 
     prompt = get_system_prompt("proctor", "base")
@@ -134,7 +200,7 @@ def render_question(attempt_id: int, question: Question):
     # Initialize if needed
     if len(chat.messages) <= 1:
         with st.spinner("Loading question..."):
-            chat = handle_question(server, attempt_id, question)
+            chat = handle_question(server, attempt_id)
 
     # Print chat messages
     for message in chat.messages:
@@ -146,19 +212,21 @@ def render_question(attempt_id: int, question: Question):
 
 
 def render_question_eval(attempt_id: int):
+    """
+    Render grade output by Grader LLM if question attempt exists and is completed.
+    """
     # Fetch from server (stateless)
-    from sqlmodel import Session, select
 
     with Session(server.engine) as session:
         attempt = session.get(QuestionAttempt, attempt_id)
         if attempt and attempt.grade_data:
-            eval = QuestionGrade.model_validate(attempt.grade_data)
+            grade = QuestionGrade.model_validate(attempt.grade_data)
             with st.expander("Question evaluation", expanded=False):
                 col1, col2, col3 = st.columns(3)
-                col1.metric("Correct", "Yes" if eval.answer_correct else "No")
-                col2.metric("Confidence", f"{eval.confidence}/5")
-                col3.metric("Thoroughness", f"{eval.thoroughness}/5")
-                st.caption(eval.explanation)
+                col1.metric("Correct", "Yes" if grade.answer_correct else "No")
+                col2.metric("Confidence", f"{grade.confidence}/5")
+                col3.metric("Thoroughness", f"{grade.thoroughness}/5")
+                st.caption(grade.explanation)
 
 
 # --- Sidebar Navigation ---
@@ -171,39 +239,42 @@ with st.sidebar:
         st.rerun()
 
     # Get chapters from DB
-    from sqlmodel import Session, select
 
     with Session(server.engine) as session:
         chapters = session.exec(select(Chapter).order_by(Chapter.id)).all()
-        for ch in chapters:
+        for chapter in chapters:
             with st.expander(
-                f"Chapter {ch.id}: {ch.title}",
+                f"Chapter {chapter.id}: {chapter.title}",
                 expanded=bool(
                     st.session_state.active_question
-                    and st.session_state.active_question[0] == ch.id
+                    and st.session_state.active_question[0] == chapter.id
                 ),
             ):
-                for q_idx, q in enumerate(ch.questions):
+                for question_idx, question in enumerate(chapter.questions):
                     # Check status (stateless)
                     attempt = server.get_or_create_attempt(
-                        st.session_state.assessment_id, q.id
+                        st.session_state.assessment_id, question.id
                     )
                     icon = server.get_question_status_icon(attempt)
 
-                    label = f"{icon} Q{q_idx + 1}: {q.concept_description[:30]}..."
+                    label = f"{icon} Q{question_idx + 1}: {question.concept_description[:30]}..."
                     if st.button(
                         label,
-                        key=f"nav_{ch.id}_{q_idx}",
+                        key=f"nav_{chapter.id}_{question_idx}",
                         use_container_width=True,
                     ):
-                        st.session_state.active_question = (ch.id, q_idx)
+                        st.session_state.active_question = (chapter.id, question_idx)
                         st.rerun()
 
-    st.divider()
-    assessment_type = st.pills(
-        label="Student type:", options=["human", "ai"], default="human"
-    )
-    teacher_mode = st.checkbox(label="Teacher mode")
+    if int(os.environ.get("TEACHER_MODE_ENABLED", 0)):
+        st.divider()
+        st.pills(
+            label="Student type:",
+            options=["human", "ai"],
+            default="human",
+            key="assessment_type",
+        )
+        st.checkbox(label="Teacher mode", key="teacher_mode")
 
     if not st.session_state.get("test_ended") and st.button(
         "End test & summarize", type="primary"
@@ -214,14 +285,13 @@ with st.sidebar:
 # --- Main Content Area ---
 
 if st.session_state.get("test_ended"):
-    from sqlmodel import Session, select, and_
-
     # 1. Grade ungraded attempts
     ungraded = server.get_ungraded_attempts(st.session_state.assessment_id)
     if ungraded:
         with st.status("Grading remaining questions...") as status:
             for att in ungraded:
                 st.write(f"Grading Chapter {att.question.chapter_id} Question...")
+                assert type(att.id) is int
                 handle_question_grading(server, att.id)
             status.update(label="Grading complete!", state="complete")
 
@@ -229,15 +299,15 @@ if st.session_state.get("test_ended"):
     chapters = server.get_attempted_chapters(st.session_state.assessment_id)
     chapter_summaries = []
 
-    for i, ch in enumerate(chapters):
-        with st.status(f"Generating summary for chapter {i+1}...") as status:
-            ch_attempt = server.get_or_create_chapter_attempt(
-                st.session_state.assessment_id, ch.id
+    for i, chapter in enumerate(chapters):
+        with st.status(f"Generating summary for chapter {i + 1}...") as status:
+            chapter_attempt = server.get_or_create_chapter_attempt(
+                st.session_state.assessment_id, chapter.id
             )
-            if not ch_attempt.summary_data:
-                st.write(f"Summarizing Chapter {ch.id}: {ch.title}...")
+            if not chapter_attempt.summary_data:
+                st.write(f"Summarizing Chapter {chapter.id}: {chapter.title}...")
                 with Session(server.engine) as session:
-                    db_ch = session.get(Chapter, ch.id)
+                    db_ch = session.get(Chapter, chapter.id)
                     stmt = (
                         select(QuestionAttempt)
                         .join(Question)
@@ -245,29 +315,36 @@ if st.session_state.get("test_ended"):
                             and_(
                                 QuestionAttempt.assessment_id
                                 == st.session_state.assessment_id,
-                                Question.chapter_id == ch.id,
-                                QuestionAttempt.grade_data.is_not(None),
+                                Question.chapter_id == chapter.id,
+                                QuestionAttempt.grade_data.is_not(None),  # type: ignore
                             )
                         )
                     )
                     attempts = session.exec(stmt).all()
 
+                    assert chapter_attempt.id is not None
                     summary = handle_chapter_summary(
-                        server, ch_attempt.id, ch.title, db_ch.questions, attempts
+                        server,
+                        chapter_attempt.id,
+                        chapter.title,
+                        db_ch.questions,
+                        attempts,
                     )
             else:
-                summary = ChapterSummary.model_validate(ch_attempt.summary_data)
+                summary = ChapterSummary.model_validate(chapter_attempt.summary_data)
             chapter_summaries.append(summary)
         status.update(label="Chapter summaries complete!", state="complete")
 
     # 3. Generate Test Summary
     with Session(server.engine) as session:
-        db_ass = session.get(Assessment, st.session_state.assessment_id)
-        if not db_ass.test_summary:
+        assessment = session.get(Assessment, st.session_state.assessment_id)
+        if not assessment.test_summary:
             with st.spinner("Generating final test summary..."):
-                test_summary = handle_test_summary(server, db_ass.id, chapter_summaries)
+                test_summary = handle_test_summary(
+                    server, assessment.id, chapter_summaries
+                )
         else:
-            test_summary = TestSummary.model_validate(db_ass.test_summary)
+            test_summary = TestSummary.model_validate(assessment.test_summary)
 
     # 4. Render Results
     st.subheader("Final Test Results")
@@ -307,45 +384,126 @@ if st.session_state.get("test_ended"):
 if st.session_state.active_question is None:
     render_greeting()
 else:
-    ch_id, q_idx = st.session_state.active_question
-    question = server.get_question(ch_id, q_idx)
+    ch_id, question_idx = st.session_state.active_question
+    question = server.get_question(ch_id, question_idx)
 
     if not question:
-        st.error(f"Question not found: Chapter {ch_id}, Index {q_idx}")
+        st.error(f"Question not found: Chapter {ch_id}, Index {question_idx}")
         if st.button("Home"):
             st.session_state.active_question = None
             st.rerun()
         st.stop()
 
+    assert type(question.id) is int
     attempt = server.get_or_create_attempt(st.session_state.assessment_id, question.id)
 
-    st.subheader(f"Chapter {ch_id} - Question {q_idx + 1}")
-    render_question(attempt.id, question)
+    assert type(attempt.id) is int
+    st.subheader(f"Chapter {ch_id} - Question {question_idx + 1}")
+    render_question(attempt.id, question, server)
 
-    if teacher_mode:
+    if st.session_state.get("teacher_mode", None):
         render_question_eval(attempt.id)
 
-    # --- Interaction Logic ---
+    @st.fragment
+    def interaction_logic(attempt_id: int, ch_id: int, question_idx: int):
+        # Fetch fresh attempt data for this fragment
+        with Session(server.engine) as session:
+            attempt = session.get(QuestionAttempt, attempt_id)
+            if not attempt:
+                return
 
-    if assessment_type == "ai":
-        if st.button("Get student answer", key=f"ai_btn_{attempt.id}"):
-            with st.spinner("Student is thinking..."):
-                handle_lm_student_response(server, attempt.id)
-                handle_proctor_response(server, attempt.id)
-                st.rerun()
-    else:
-        user_response_type = get_user_response_type(server, attempt)
-        if prompt := st.chat_input(
-            "Your response...",
-            disabled=not user_response_type,
-            key=f"input_{attempt.id}",
-        ):
-            full_prompt = f"({user_response_type}) {prompt}"
+        pending_key = f"pending_decision_{attempt.id}"
+        optimistic_complete_key = f"optimistic_complete_{attempt.id}"
 
-            # Persist and Respond
-            handle_student_message(server, attempt.id, full_prompt)
-            handle_proctor_preparation(server, attempt.id, user_response_type)
+        # Determine if question is complete (optimistic check)
+        is_complete = attempt.grade_data is not None or st.session_state.get(
+            optimistic_complete_key, False
+        )
 
-            with st.spinner("Proctor is responding..."):
-                handle_proctor_response(server, attempt.id)
-                st.rerun()
+        # Navigation Button
+        next_q = server.get_next_incomplete_question(
+            st.session_state.assessment_id, ch_id, question_idx
+        )
+        if next_q:
+            label = (
+                "Continue to next question" if is_complete else "Skip to next question"
+            )
+
+            _, col = st.columns([4, 1])
+            with col:
+                if st.button(
+                    label,
+                    key=f"next_btn_{attempt.id}",
+                    use_container_width=True,
+                ):
+                    st.session_state.active_question = next_q
+                    # Clear optimistic flags for the next question
+                    if optimistic_complete_key in st.session_state:
+                        del st.session_state[optimistic_complete_key]
+                    st.rerun(scope="app")
+
+        # Create containers for correct visual ordering
+        chat_container = st.container()
+        input_container = st.container()
+
+        # Execute input block first so that UI updates (disappearing input, appearing badge)
+        # flush to the frontend BEFORE the blocking st.write_stream call.
+        with input_container:
+            if is_complete:
+                st.badge(label="Question complete", icon=":material/check:", color="gray")
+            elif st.session_state.get("assessment_type", None) == "ai":
+                if st.button("Get student answer", key=f"ai_btn_{attempt.id}"):
+                    with st.spinner("Student is thinking..."):
+                        handle_lm_student_response(server, attempt.id)
+
+                    with st.spinner("Proctor is thinking..."):
+                        decision = handle_proctor_response_decision(server, attempt.id)
+                        st.session_state[pending_key] = decision
+                        if decision.decision == "question_complete":
+                            st.session_state[optimistic_complete_key] = True
+
+                    st.rerun()
+            else:
+                user_response_type = get_user_response_type(server, attempt)
+                if prompt := st.chat_input(
+                    "Your response...",
+                    disabled=not user_response_type,
+                    key=f"input_{attempt.id}",
+                ):
+                    assert user_response_type is not None
+                    full_prompt = f"({user_response_type}) {prompt}"
+
+                    # Persist Student Message
+                    handle_student_message(server, attempt.id, full_prompt)
+                    handle_proctor_preparation(server, attempt.id, user_response_type)
+
+                    with chat_container:
+                        with st.chat_message("user"):
+                            st.markdown(full_prompt)
+
+                    with st.spinner("Proctor is thinking..."):
+                        decision = handle_proctor_response_decision(server, attempt.id)
+                        st.session_state[pending_key] = decision
+                        if decision.decision == "question_complete":
+                            st.session_state[optimistic_complete_key] = True
+
+                    st.rerun()
+
+        # Process pending assistant response (Blocking stream)
+        if pending_key in st.session_state:
+            decision = st.session_state[pending_key]
+            with chat_container:
+                with st.chat_message("assistant"):
+                    full_response = st.write_stream(
+                        handle_proctor_student_response(server, attempt.id, decision)
+                    )
+                    # Save to DB now that stream is done
+                    server.record_message(attempt.id, "assistant", str(full_response))
+
+            if decision.decision == "question_complete":
+                handle_question_grading(server, attempt.id)
+
+            del st.session_state[pending_key]
+            st.rerun()
+
+    interaction_logic(attempt.id, ch_id, question_idx)

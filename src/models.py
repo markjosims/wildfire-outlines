@@ -47,7 +47,6 @@ class StudentAnswer(BaseModel):
 
 
 class Response(BaseModel):
-    message: str
     reasoning: str
     decision: Literal["follow_up", "question_complete"]
 

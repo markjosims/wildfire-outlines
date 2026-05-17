@@ -9,7 +9,7 @@ import json
 import outlines
 from outlines.inputs import Chat
 import os
-from typing import Literal, Optional, List
+from typing import Literal, List
 import logging
 from src.assessment_server import AssessmentServer
 from src.models import (
@@ -34,7 +34,7 @@ if "OPENAI_API_KEY" not in os.environ:
     os.environ["OPENAI_API_KEY"] = get_secret()
 
 
-openai_model = os.environ.get("OPENAI_MODEL", "gpt-4o")
+openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.5")
 client = OpenAI()
 model = outlines.from_openai(client, openai_model)
 
@@ -50,7 +50,8 @@ PromptType = Literal[
     "base",
     "question",
     "clarify",
-    "answer",
+    "decide-answer-response",
+    "give-student-response",
     "grade-question",
     "chapter-summary",
     "test-summary",
@@ -77,7 +78,6 @@ def get_system_prompt(
 def handle_question(
     server: AssessmentServer,
     attempt_id: int,
-    question: Question,
 ) -> Chat:
     """
     Returns the current proctor chat context.
@@ -127,7 +127,7 @@ def handle_lm_student_response(
     student_prompt = get_system_prompt("student", "question")
     chat = server.load_chat_for_llm(attempt_id, student_prompt, role="student")
 
-    response = model(chat, StudentAnswer)
+    response: str = model(chat, StudentAnswer)  # type: ignore
     answer: StudentAnswer = StudentAnswer.model_validate_json(response)
 
     handle_student_message(server, attempt_id, answer.message)
@@ -136,7 +136,7 @@ def handle_lm_student_response(
     return answer.decision
 
 
-def handle_intro_chat(server: AssessmentServer, assessment_id: int) -> Chat:
+def handle_intro_chat() -> Chat:
     """
     Ephemeral intro chat for now.
     """
@@ -144,7 +144,7 @@ def handle_intro_chat(server: AssessmentServer, assessment_id: int) -> Chat:
     chat = Chat()
     chat.add_system_message(prompt)
 
-    response = model(chat, Greeting)
+    response: str = model(chat, Greeting)  # type: ignore
     greeting: Greeting = Greeting.model_validate_json(response)
     chat.add_assistant_message(greeting.message)
 
@@ -161,31 +161,58 @@ def handle_question_grading(
     grade_prompt = get_system_prompt(role="grader", prompt_type="grade-question")
     chat = server.load_chat_for_llm(attempt_id, grade_prompt, role="grader")
 
-    response = model(chat, QuestionGrade)
+    response: str = model(chat, QuestionGrade)  # type: ignore
     evaluation: QuestionGrade = QuestionGrade.model_validate_json(response)
 
     server.save_llm_result(attempt_id, evaluation.model_dump(), "question")
     return evaluation
 
 
-def handle_proctor_response(
-    server: AssessmentServer, attempt_id: int | None = None, is_question: bool = True
+def handle_proctor_response_decision(
+    server: AssessmentServer, attempt_id: int | None = None
 ) -> Response:
     """
-    Prompt model to respond to last student message.
+    Prompt model to analyze student response and make a decision.
     """
-    prompt = get_system_prompt("proctor", "base")
+    prompt = get_system_prompt("proctor", "decide-answer-response")
     chat = server.load_chat_for_llm(attempt_id, prompt, role="proctor")
 
     response = model(chat, Response)
     res_obj: Response = Response.model_validate_json(response)
 
-    server.record_message(attempt_id, "assistant", res_obj.message)
-
-    if is_question and res_obj.decision == "question_complete":
-        handle_question_grading(server, attempt_id)
-
     return res_obj
+
+
+def handle_proctor_student_response(
+    server: AssessmentServer, attempt_id: int | None, decision: Response
+):
+    """
+    Prompt model to generate a conversational response based on decision.
+    Yields chunks for streaming.
+    """
+    # 1. Prepare prompt
+    prompt_template = get_system_prompt("proctor", "give-student-response")
+    instruction = prompt_template.format(
+        reasoning=decision.reasoning, decision=decision.decision
+    )
+
+    # 2. Load chat history with base proctor instructions
+    # We use the instruction as the system prompt to guide the response
+    chat = server.load_chat_for_llm(attempt_id, instruction, role="proctor")
+
+    # 3. Stream from OpenAI
+    stream = client.chat.completions.create(
+        model=openai_model,
+        messages=chat.messages,  # type: ignore
+        stream=True,
+    )
+
+    full_response = ""
+    for chunk in stream:
+        content = chunk.choices[0].delta.content
+        if content:
+            full_response += content
+            yield content
 
 
 def handle_chapter_summary(

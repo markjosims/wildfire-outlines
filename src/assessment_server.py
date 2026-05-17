@@ -126,9 +126,13 @@ class AssessmentServer:
     # --- Chat Persistence (Lazy Reconstruction) ---
 
     def record_message(
-        self, attempt_id: int, role: Literal["user", "assistant"], content: str
+        self, attempt_id: int | None, role: Literal["user", "assistant"], content: str
     ):
         """Saves a message to the unified chat log."""
+        if attempt_id is None:
+            # For now, if no attempt_id, we don't persist (greeting logic)
+            return
+
         with Session(self.engine) as session:
             msg = ChatMessage(attempt_id=attempt_id, role=role, content=content)
             session.add(msg)
@@ -177,13 +181,13 @@ class AssessmentServer:
                 )
 
             # Sort by timestamp, then ID for stable ordering
-            sorted_msgs = sorted(attempt.chats, key=lambda c: (c.timestamp, c.id))
+            sorted_messages = sorted(attempt.chats, key=lambda c: (c.timestamp, c.id))
 
-            for m in sorted_msgs:
-                if m.role == "user":
-                    chat.add_user_message(m.content)
-                elif m.role == "assistant":
-                    chat.add_assistant_message(m.content)
+            for message in sorted_messages:
+                if message.role == "user":
+                    chat.add_user_message(message.content)
+                elif message.role == "assistant":
+                    chat.add_assistant_message(message.content)
             return chat
 
     # --- Grade & Summary Persistence ---
@@ -292,3 +296,29 @@ class AssessmentServer:
         if attempt.num_answer_attempts > 0:
             return "❔"
         return ""
+
+    def get_next_incomplete_question(
+        self, assessment_id: int, current_chapter_id: int, current_question_idx: int
+    ) -> Optional[tuple[int, int]]:
+        """
+        Find the next question (chapter_id, question_idx) in sequence that has not been graded.
+        """
+        with Session(self.engine) as session:
+            chapters = session.exec(select(Chapter).order_by(Chapter.id)).all()
+
+            found_current = False
+            for chapter in chapters:
+                for idx, question in enumerate(chapter.questions):
+                    if not found_current:
+                        if (
+                            chapter.id == current_chapter_id
+                            and idx == current_question_idx
+                        ):
+                            found_current = True
+                        continue
+
+                    attempt = self.get_or_create_attempt(assessment_id, question.id)
+                    if not attempt.grade_data:
+                        return (chapter.id, idx)
+
+            return None
