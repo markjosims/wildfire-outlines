@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import List, Dict, Optional, Any
 
 questions_a = Path("./wildfire_questions_A.md")
 questions_b = Path("./wildfire_questions_B.md")
@@ -61,9 +62,9 @@ def trim_chapter_divider(text: str) -> str:
     return clean_field("\n".join(lines))
 
 
-def split_chapters(content: str) -> list[dict[str, str]]:
+def split_chapters(content: str) -> List[Dict[str, str]]:
     matches = list(CHAPTER_REGEX.finditer(content))
-    chapters: list[dict[str, str]] = []
+    chapters: List[Dict[str, str]] = []
     for index, match in enumerate(matches):
         start = match.end()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(content)
@@ -77,7 +78,7 @@ def split_chapters(content: str) -> list[dict[str, str]]:
     return chapters
 
 
-def parse_questions_a(chapter_text: str) -> list[dict[str, str]]:
+def parse_questions_a(chapter_text: str) -> List[Dict[str, str]]:
     headers = list(QUESTION_A_HEADER_REGEX.finditer(chapter_text))
     questions = []
     for index, match in enumerate(headers):
@@ -120,7 +121,7 @@ def parse_questions_a(chapter_text: str) -> list[dict[str, str]]:
     return questions
 
 
-def split_b_blocks(chapter_text: str) -> list[str]:
+def split_b_blocks(chapter_text: str) -> List[str]:
     return [
         block.strip()
         for block in QUESTION_B_SPLIT_REGEX.split(chapter_text)
@@ -128,7 +129,7 @@ def split_b_blocks(chapter_text: str) -> list[str]:
     ]
 
 
-def parse_questions_b(chapter_text: str) -> list[dict[str, str]]:
+def parse_questions_b(chapter_text: str) -> List[Dict[str, str]]:
     questions = []
     for block in split_b_blocks(chapter_text):
         header_match = QUESTION_B_HEADER_REGEX.search(block)
@@ -209,7 +210,7 @@ def parse_questions_b(chapter_text: str) -> list[dict[str, str]]:
     return questions
 
 
-def write_json(markdown_path: Path, parser) -> list[dict[str, object]]:
+def write_json(markdown_path: Path, parser) -> List[Dict[str, Any]]:
     content = markdown_path.read_text()
     json_data = []
     for chapter in split_chapters(content):
